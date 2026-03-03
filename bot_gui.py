@@ -9,12 +9,79 @@ import random
 import keyboard
 import ctypes
 from ctypes import wintypes
+import pytesseract
+from PIL import Image
+import cv2
+import numpy as np
+import subprocess
+import winreg
+import shutil
+
+# Tesseract Auto-Detection Function
+def find_tesseract():
+    """Automatically find Tesseract installation on Windows."""
+    if os.name != 'nt':
+        return None
+    
+    # Method 1: Check Windows Registry
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Tesseract-OCR")
+        install_path = winreg.QueryValueEx(key, "InstallDir")[0]
+        winreg.CloseKey(key)
+        tesseract_path = os.path.join(install_path, "tesseract.exe")
+        if os.path.exists(tesseract_path):
+            print(f"✅ Tesseract found via Registry: {tesseract_path}")
+            return tesseract_path
+    except:
+        pass
+    
+    # Method 2: Check PATH environment variable
+    tesseract_in_path = shutil.which("tesseract")
+    if tesseract_in_path:
+        print(f"✅ Tesseract found in PATH: {tesseract_in_path}")
+        return tesseract_in_path
+    
+    # Method 3: Use 'where' command to find tesseract
+    try:
+        result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            tesseract_path = result.stdout.strip().split('\n')[0]
+            if os.path.exists(tesseract_path):
+                print(f"✅ Tesseract found via 'where' command: {tesseract_path}")
+                return tesseract_path
+    except:
+        pass
+    
+    # Method 4: Check common installation locations
+    possible_paths = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        r'C:\Tesseract-OCR\tesseract.exe',
+        os.path.expandvars(r'%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe'),
+        os.path.expandvars(r'%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe'),
+        os.path.expandvars(r'%APPDATA%\Tesseract-OCR\tesseract.exe'),
+        os.path.expandvars(r'%ProgramW6432%\Tesseract-OCR\tesseract.exe'),
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"✅ Tesseract found: {path}")
+            return path
+    
+    print("⚠️ Tesseract not found automatically. Please install it or add to PATH.")
+    return None
+
+# Configure Tesseract path automatically
+tesseract_path = find_tesseract()
+if tesseract_path:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+else:
+    print("❌ Tesseract OCR not found! OCR features will not work.")
+    print("   Install from: https://github.com/UB-Mannheim/tesseract/wiki")
 
 # Optimize pydirectinput pause for games
 pydirectinput.PAUSE = 0
-
-# Monster images folder
-MONSTERS_FOLDER = 'monsters'
 
 # Power bar images folder
 POWER_BAR_FOLDER = 'power_bar'
@@ -68,24 +135,25 @@ class BotGUI:
         # Bot status
         self.bot_running = False
         self.bot_thread = None
-        self.confidence = 0.78
         self.skill_delay = 0.15
         self.mob_delay = 0.2
         self.skills = ['1', '2', '3', '4']
-        self.static_mode = False  # Static mode (no mouse movement)
         
-        # Hunt mode: "images" or "region"
-        self.hunt_mode = "images"  # Default to image detection
+        # Hunt region for OCR-based detection
         self.hunt_region = None  # Hunt region (x, y, width, height)
         self.click_points = []  # Pre-calculated click points in region
         self.current_click_index = 0  # Current point index
         
         self.power_bar_enabled = False  # Power bar detection
         self.power_bar_check_interval = 17.0  # Bar check interval (seconds)
-        self.power_bar_mode = "filtered"  # "filtered" or "always"
-        self.power_bar_only_for = ""  # Use power bar only for these mobs (keywords)
         self.last_power_bar_check = 0
         self.power_bar_uses = 0  # How many times TAB pressed
+        
+        # Auto TAB on Giant detection
+        self.auto_tab_on_giant = False  # Auto press TAB when "Giant" text is detected
+        self.giant_tab_cooldown = 15.0  # Cooldown between TAB presses for Giant
+        self.last_giant_tab = 0  # Last time TAB was pressed for Giant
+        self.giant_tab_count = 0  # How many times TAB pressed for Giant
         
         # Statistics
         self.total_kills = 0
@@ -137,108 +205,82 @@ class BotGUI:
         self.power_bar_label = ttk.Label(status_frame, text="⚡ Power Used: 0", font=("Arial", 10))
         self.power_bar_label.grid(row=2, column=0, pady=2)
         
+        self.giant_tab_label = ttk.Label(status_frame, text="🔥 Giant TABs: 0", font=("Arial", 10))
+        self.giant_tab_label.grid(row=3, column=0, pady=2)
+        
         self.time_label = ttk.Label(status_frame, text="Running Time: 00:00:00", font=("Arial", 10))
-        self.time_label.grid(row=3, column=0, pady=2)
+        self.time_label.grid(row=4, column=0, pady=2)
         
         # Settings panel
         settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Settings", padding="10")
         settings_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
-        # Confidence setting
-        ttk.Label(settings_frame, text="Detection Confidence:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.confidence_var = tk.DoubleVar(value=0.78)
-        confidence_slider = ttk.Scale(settings_frame, from_=0.5, to=0.95, variable=self.confidence_var, 
-                                     orient=tk.HORIZONTAL, length=200, command=self.update_confidence)
-        confidence_slider.grid(row=0, column=1, padx=5)
-        self.confidence_value_label = ttk.Label(settings_frame, text="0.78")
-        self.confidence_value_label.grid(row=0, column=2)
-        
         # Skill delay setting
-        ttk.Label(settings_frame, text="Skill Interval (sec):").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text="Skill Interval (sec):").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.skill_delay_var = tk.DoubleVar(value=0.15)
         skill_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=1.0, variable=self.skill_delay_var,
                                       orient=tk.HORIZONTAL, length=200, command=self.update_skill_delay)
-        skill_delay_slider.grid(row=1, column=1, padx=5)
+        skill_delay_slider.grid(row=0, column=1, padx=5)
         self.skill_delay_label = ttk.Label(settings_frame, text="0.15")
-        self.skill_delay_label.grid(row=1, column=2)
+        self.skill_delay_label.grid(row=0, column=2)
         
         # Mob delay setting
-        ttk.Label(settings_frame, text="Mob Interval (sec):").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text="Mob Interval (sec):").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.mob_delay_var = tk.DoubleVar(value=0.2)
         mob_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=2.0, variable=self.mob_delay_var,
                                     orient=tk.HORIZONTAL, length=200, command=self.update_mob_delay)
-        mob_delay_slider.grid(row=2, column=1, padx=5)
+        mob_delay_slider.grid(row=1, column=1, padx=5)
         self.mob_delay_label = ttk.Label(settings_frame, text="0.20")
-        self.mob_delay_label.grid(row=2, column=2)
+        self.mob_delay_label.grid(row=1, column=2)
         
         # Skill keys
-        ttk.Label(settings_frame, text="Skill Keys:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text="Skill Keys:").grid(row=2, column=0, sticky=tk.W, pady=5)
         self.skills_entry = ttk.Entry(settings_frame, width=15)
         self.skills_entry.insert(0, "1,2,3,4")
-        self.skills_entry.grid(row=3, column=1, padx=5, sticky=tk.W)
-        ttk.Label(settings_frame, text="(comma separated)").grid(row=3, column=2, sticky=tk.W)
-        
-        # Static mode (No mouse movement)
-        self.static_mode_var = tk.BooleanVar(value=False)
-        static_check = ttk.Checkbutton(settings_frame, text="⛔ Static Mode (No mouse movement)", 
-                                      variable=self.static_mode_var, command=self.toggle_static_mode)
-        static_check.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=5)
-        
-        # Hunt Mode Selection
-        ttk.Label(settings_frame, text="Hunt Mode:").grid(row=5, column=0, sticky=tk.W, pady=5)
-        self.hunt_mode_var = tk.StringVar(value="images")
-        hunt_mode_frame = ttk.Frame(settings_frame)
-        hunt_mode_frame.grid(row=5, column=1, columnspan=2, sticky=tk.W, pady=5)
-        
-        ttk.Radiobutton(hunt_mode_frame, text="📸 Image Detection", 
-                       variable=self.hunt_mode_var, value="images").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(hunt_mode_frame, text="🎯 Region Mode", 
-                       variable=self.hunt_mode_var, value="region").pack(side=tk.LEFT, padx=5)
+        self.skills_entry.grid(row=2, column=1, padx=5, sticky=tk.W)
+        ttk.Label(settings_frame, text="(comma separated)").grid(row=2, column=2, sticky=tk.W)
         
         # Set Hunt Region button
-        self.set_hunt_region_button = ttk.Button(settings_frame, text="📍 Set Hunt Region (for Region Mode)", 
+        self.set_hunt_region_button = ttk.Button(settings_frame, text="📍 Set Hunt Region (OCR-based Detection)", 
                                                  command=self.set_hunt_region)
-        self.set_hunt_region_button.grid(row=6, column=0, columnspan=3, pady=5)
+        self.set_hunt_region_button.grid(row=3, column=0, columnspan=3, pady=10)
         
-        # Monster names for region mode
-        ttk.Label(settings_frame, text="Monster Names:").grid(row=7, column=0, sticky=tk.W, pady=5)
+        # Monster names
+        ttk.Label(settings_frame, text="Monster Names:").grid(row=4, column=0, sticky=tk.W, pady=5)
         self.region_monsters_entry = ttk.Entry(settings_frame, width=25)
         self.region_monsters_entry.insert(0, "shakram, edimmu")
-        self.region_monsters_entry.grid(row=7, column=1, padx=5, sticky=tk.W)
-        ttk.Label(settings_frame, text="(for region mode)").grid(row=7, column=2, sticky=tk.W)
+        self.region_monsters_entry.grid(row=4, column=1, padx=5, sticky=tk.W)
+        ttk.Label(settings_frame, text="(comma separated)").grid(row=4, column=2, sticky=tk.W)
         
         # Power Bar detection
         self.power_bar_var = tk.BooleanVar(value=False)
         power_bar_check = ttk.Checkbutton(settings_frame, text="⚡ Power Bar Detection (TAB key)", 
                                          variable=self.power_bar_var, command=self.toggle_power_bar)
-        power_bar_check.grid(row=8, column=0, columnspan=3, sticky=tk.W, pady=5)
+        power_bar_check.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=10)
         
         # Power bar check interval
-        ttk.Label(settings_frame, text="Bar Check Interval (sec):").grid(row=9, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text="Bar Check Interval (sec):").grid(row=6, column=0, sticky=tk.W, pady=5)
         self.bar_check_var = tk.DoubleVar(value=17.0)
         bar_check_slider = ttk.Scale(settings_frame, from_=5.0, to=30.0, variable=self.bar_check_var,
                                     orient=tk.HORIZONTAL, length=200, command=self.update_bar_interval)
-        bar_check_slider.grid(row=9, column=1, padx=5)
+        bar_check_slider.grid(row=6, column=1, padx=5)
         self.bar_check_label = ttk.Label(settings_frame, text="17.0")
-        self.bar_check_label.grid(row=9, column=2)
+        self.bar_check_label.grid(row=6, column=2)
         
-        # Power bar mode selection
-        ttk.Label(settings_frame, text="Power Bar Mode:").grid(row=10, column=0, sticky=tk.W, pady=5)
-        self.power_bar_mode_var = tk.StringVar(value="filtered")
-        mode_frame = ttk.Frame(settings_frame)
-        mode_frame.grid(row=10, column=1, columnspan=2, sticky=tk.W, pady=5)
+        # Auto TAB on Giant detection (OCR-based)
+        self.auto_tab_giant_var = tk.BooleanVar(value=False)
+        auto_tab_giant_check = ttk.Checkbutton(settings_frame, text="🔥 Auto TAB when 'Giant' detected (OCR)", 
+                                               variable=self.auto_tab_giant_var, command=self.toggle_auto_tab_giant)
+        auto_tab_giant_check.grid(row=7, column=0, columnspan=3, sticky=tk.W, pady=10)
         
-        ttk.Radiobutton(mode_frame, text="Only for specific mobs", 
-                       variable=self.power_bar_mode_var, value="filtered").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(mode_frame, text="Always when full", 
-                       variable=self.power_bar_mode_var, value="always").pack(side=tk.LEFT, padx=5)
-        
-        # Power bar filter (only shown when filtered mode)
-        ttk.Label(settings_frame, text="Filter Keywords:").grid(row=11, column=0, sticky=tk.W, pady=5)
-        self.power_bar_filter_entry = ttk.Entry(settings_frame, width=20)
-        self.power_bar_filter_entry.insert(0, "giant")
-        self.power_bar_filter_entry.grid(row=11, column=1, padx=5, sticky=tk.W)
-        ttk.Label(settings_frame, text="(for filtered mode)").grid(row=11, column=2, sticky=tk.W)
+        # Giant TAB cooldown
+        ttk.Label(settings_frame, text="Giant TAB Cooldown (sec):").grid(row=8, column=0, sticky=tk.W, pady=5)
+        self.giant_tab_cooldown_var = tk.DoubleVar(value=15.0)
+        giant_cooldown_slider = ttk.Scale(settings_frame, from_=5.0, to=30.0, variable=self.giant_tab_cooldown_var,
+                                         orient=tk.HORIZONTAL, length=200, command=self.update_giant_cooldown)
+        giant_cooldown_slider.grid(row=8, column=1, padx=5)
+        self.giant_cooldown_label = ttk.Label(settings_frame, text="15.0")
+        self.giant_cooldown_label.grid(row=8, column=2)
         
         # Buttons
         button_frame = ttk.Frame(main_frame)
@@ -264,10 +306,6 @@ class BotGUI:
                               font=("Arial", 8), foreground="gray")
         info_label.grid(row=5, column=0, columnspan=2, pady=5)
         
-    def update_confidence(self, value):
-        self.confidence = float(value)
-        self.confidence_value_label.config(text=f"{self.confidence:.2f}")
-        
     def update_skill_delay(self, value):
         self.skill_delay = float(value)
         self.skill_delay_label.config(text=f"{self.skill_delay:.2f}")
@@ -279,17 +317,23 @@ class BotGUI:
     def update_bar_interval(self, value):
         self.power_bar_check_interval = float(value)
         self.bar_check_label.config(text=f"{self.power_bar_check_interval:.1f}")
-        
-    def toggle_static_mode(self):
-        self.static_mode = self.static_mode_var.get()
-        if self.static_mode:
-            self.log("⛔ Static Mode ON - Mouse movement DISABLED")
+    
+    def update_giant_cooldown(self, value):
+        self.giant_tab_cooldown = float(value)
+        self.giant_cooldown_label.config(text=f"{self.giant_tab_cooldown:.1f}")
+    
+    def toggle_auto_tab_giant(self):
+        self.auto_tab_on_giant = self.auto_tab_giant_var.get()
+        if self.auto_tab_on_giant:
+            self.log("🔥 Auto TAB on Giant: ON")
+            self.log(f"   TAB will be pressed when 'Giant' text is detected")
+            self.log(f"   Cooldown: {self.giant_tab_cooldown:.1f}s between TABs")
         else:
-            self.log("➡️ Static Mode OFF - Mouse movement ENABLED")
+            self.log("❌ Auto TAB on Giant: OFF")
     
     def set_hunt_region(self):
         """Let user select a hunt region by drawing on screen."""
-        self.log("📍 Hunt Region Selection")
+        self.log("📍 Hunt Region Selection (OCR-based Detection)")
         self.log("   1. Click OK on the dialog")
         self.log("   2. Click and drag to draw a rectangle on your game")
         self.log("   3. Release mouse to confirm")
@@ -397,12 +441,7 @@ class BotGUI:
     def toggle_power_bar(self):
         self.power_bar_enabled = self.power_bar_var.get()
         if self.power_bar_enabled:
-            power_mode = self.power_bar_mode_var.get()
-            if power_mode == "filtered":
-                power_filter = self.power_bar_filter_entry.get().strip()
-                self.log(f"⚡ Power Bar: ON - Filtered mode (keywords: '{power_filter}')")
-            else:
-                self.log("⚡ Power Bar: ON - Always mode (all mobs)")
+            self.log("⚡ Power Bar: ON")
             # Check if power bar image exists
             bar_images = self.get_power_bar_images()
             if not bar_images:
@@ -427,67 +466,23 @@ class BotGUI:
             self.log("❌ ERROR: Skill keys cannot be empty!")
             return
         
-        # Get hunt mode
-        hunt_mode = self.hunt_mode_var.get()
+        # Check hunt region
+        if not self.hunt_region:
+            self.log("❌ ERROR: Hunt region not set!")
+            self.log("   Click 'Set Hunt Region' button first")
+            return
         
-        # Check requirements based on mode
-        if hunt_mode == "images":
-            monster_images = self.get_monster_images()
-            if not monster_images:
-                self.log(f"❌ ERROR: No images found in '{MONSTERS_FOLDER}' folder!")
-                self.log("   Either add monster images OR switch to Region Mode")
-                return
-        else:  # region mode
-            monster_images = []
-            if not self.hunt_region:
-                self.log("❌ ERROR: Hunt region not set!")
-                self.log("   Click 'Set Hunt Region' button first")
-                return
-            
-            # Check if monster names are provided
-            monster_names_input = self.region_monsters_entry.get().strip()
-            if not monster_names_input:
-                self.log("❌ ERROR: No monster names specified!")
-                self.log("   Enter monster names in the 'Monster Names' field (comma separated)")
-                return
-            
-            # Check if at least one monster image exists (with smart matching)
-            monster_names = [name.strip().lower() for name in monster_names_input.split(',')]
-            
-            # Get all available monster files for smart matching
-            available_monsters = {}
-            if os.path.exists(MONSTERS_FOLDER):
-                for file in os.listdir(MONSTERS_FOLDER):
-                    if file.endswith('.png'):
-                        base_name = file[:-4]  # Remove .png
-                        normalized = base_name.lower().replace(' ', '').replace('-', '').replace('_', '')
-                        available_monsters[normalized] = file
-            
-            found_any = False
-            matched_files = []
-            for monster_name in monster_names:
-                # Try direct match first
-                monster_file = os.path.join(MONSTERS_FOLDER, f"{monster_name}.png")
-                if os.path.exists(monster_file):
-                    found_any = True
-                    matched_files.append(f"{monster_name}.png")
-                else:
-                    # Try normalized matching
-                    normalized_input = monster_name.replace(' ', '').replace('-', '').replace('_', '')
-                    if normalized_input in available_monsters:
-                        found_any = True
-                        matched_files.append(f"{available_monsters[normalized_input]} (matched from '{monster_name}')")
-            
-            if not found_any:
-                self.log("❌ ERROR: No monster images found!")
-                self.log(f"   Make sure images exist in '{MONSTERS_FOLDER}' folder")
-                self.log(f"   You entered: {', '.join(monster_names)}")
-                self.log(f"   Available files: {', '.join([f for f in os.listdir(MONSTERS_FOLDER) if f.endswith('.png')])}")
-                return
-            else:
-                self.log(f"✅ Matched {len(matched_files)} monster(s):")
-                for mf in matched_files:
-                    self.log(f"   - {mf}")
+        # Check if monster names are provided
+        monster_names_input = self.region_monsters_entry.get().strip()
+        if not monster_names_input:
+            self.log("❌ ERROR: No monster names specified!")
+            self.log("   Enter monster names in the 'Monster Names' field (comma separated)")
+            return
+        
+        # Log that we're using OCR mode
+        monster_names = [name.strip() for name in monster_names_input.split(',')]
+        self.log(f"✅ OCR-based detection (no images needed!)")
+        self.log(f"   Hunting: {', '.join(monster_names)}")
         
         self.bot_running = True
         self.total_kills = 0
@@ -500,38 +495,28 @@ class BotGUI:
         self.log("=" * 60)
         self.log("🚀 BOT STARTED!")
         
-        # Log hunt mode info
-        if hunt_mode == "images":
-            self.log(f"📸 Mode: IMAGE DETECTION")
-            self.log(f"📁 {len(monster_images)} different monsters loaded:")
-            for img in monster_images:
-                self.log(f"   - {os.path.basename(img)}")
-        else:
-            self.log(f"🎯 Mode: REGION MODE")
-            x, y, w, h = self.hunt_region
-            self.log(f"📍 Hunt Region: X={x}, Y={y}, W={w}, H={h}")
-            monster_names_input = self.region_monsters_entry.get().strip()
-            monster_names = [name.strip() for name in monster_names_input.split(',')]
-            self.log(f"🎯 Hunting: {', '.join(monster_names)}")
-        
+        # Log hunt info
+        x, y, w, h = self.hunt_region
+        self.log(f"📍 Hunt Region: X={x}, Y={y}, W={w}, H={h}")
+        monster_names_input = self.region_monsters_entry.get().strip()
+        monster_names = [name.strip() for name in monster_names_input.split(',')]
+        self.log(f"🎯 Hunting: {', '.join(monster_names)}")
         self.log(f"🎯 Skill keys: {', '.join(self.skills)}")
         self.log(f"⚙️ Skill interval: {self.skill_delay}s")
         self.log(f"⚙️ Mob interval: {self.mob_delay}s")
         if self.power_bar_enabled:
             bar_images = self.get_power_bar_images()
-            power_mode = self.power_bar_mode_var.get()
-            if power_mode == "filtered":
-                power_filter = self.power_bar_filter_entry.get().strip()
-                self.log(f"⚡ Power Bar: ON - Filtered mode (keywords: '{power_filter}')")
-            else:
-                self.log(f"⚡ Power Bar: ON - Always mode (all mobs)")
+            self.log(f"⚡ Power Bar: ON")
             self.log(f"   Check interval: {self.power_bar_check_interval}s")
             if bar_images:
                 self.log(f"   ✅ {len(bar_images)} bar image(s) loaded")
+        if self.auto_tab_on_giant:
+            self.log(f"🔥 Auto TAB on Giant: ON")
+            self.log(f"   Cooldown: {self.giant_tab_cooldown:.1f}s between TABs")
         self.log("=" * 60)
         
         # Start bot thread
-        self.bot_thread = threading.Thread(target=self.bot_loop, args=(monster_images,), daemon=True)
+        self.bot_thread = threading.Thread(target=self.bot_loop, daemon=True)
         self.bot_thread.start()
         
         # Start timer
@@ -553,20 +538,6 @@ class BotGUI:
             self.time_label.config(text=f"Running Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
             self.root.after(1000, self.update_timer)
             
-    def get_monster_images(self):
-        valid_extensions = ('.png', '.jpg', '.jpeg')
-        images = []
-        
-        if not os.path.exists(MONSTERS_FOLDER):
-            os.makedirs(MONSTERS_FOLDER)
-            return images
-            
-        for filename in os.listdir(MONSTERS_FOLDER):
-            if filename.lower().endswith(valid_extensions):
-                images.append(os.path.join(MONSTERS_FOLDER, filename))
-                
-        return images
-        
     def get_power_bar_images(self):
         """Load power bar images."""
         valid_extensions = ('.png', '.jpg', '.jpeg')
@@ -583,46 +554,20 @@ class BotGUI:
         return images
         
     def check_power_bar(self, current_mob_name=""):
-        """Check if power bar is full and press TAB if conditions are met."""
-        # Get current mode
-        power_bar_mode = self.power_bar_mode_var.get()
-        
-        # Check if power bar should be used for this mob
-        if power_bar_mode == "filtered":
-            power_bar_filter = self.power_bar_filter_entry.get().strip().lower()
-            
-            if power_bar_filter:
-                # If filter is set, check if current mob name contains any filter keyword
-                mob_name_lower = current_mob_name.lower()
-                filter_keywords = [kw.strip() for kw in power_bar_filter.split(',')]
-                
-                # Check if any keyword matches
-                if not any(keyword in mob_name_lower for keyword in filter_keywords):
-                    # This mob is not in the filter list, skip power bar
-                    self.log(f"   ⏭️ [{current_mob_name}] - Skipping power bar (not giant)")
-                    return
-                else:
-                    self.log(f"   ✓ [{current_mob_name}] matches filter, checking power bar...")
-        else:
-            # Always mode - use for all mobs
-            self.log(f"   ⚡ [ALWAYS MODE] Checking power bar for [{current_mob_name}]...")
-        
+        """Check if power bar is full and press TAB."""
         current_time = time.time()
         
         # Skip if check interval hasn't passed
         if current_time - self.last_power_bar_check < self.power_bar_check_interval:
             time_remaining = self.power_bar_check_interval - (current_time - self.last_power_bar_check)
-            self.log(f"   ⏳ Power bar cooldown: {time_remaining:.1f}s remaining")
             return
             
         self.last_power_bar_check = current_time
         
         bar_images = self.get_power_bar_images()
         if not bar_images:
-            self.log(f"   ⚠️ No power bar image found in '{POWER_BAR_FOLDER}' folder!")
             return
         
-        self.log(f"   🔍 Searching for power bar on screen...")
         for img_path in bar_images:
             try:
                 # Search for bar (lower confidence, lighting may vary)
@@ -635,51 +580,46 @@ class BotGUI:
                         text=f"⚡ Power Used: {self.power_bar_uses}"))
                     
                     keyboard.press_and_release('tab')
-                    self.log(f"⚡ POWER ACTIVATED for [{current_mob_name}]! (#{self.power_bar_uses})")
+                    self.log(f"⚡ POWER ACTIVATED! (#{self.power_bar_uses})")
                     
                     # Wait 10 seconds after using power (for bar to refill)
                     self.last_power_bar_check = current_time + 10
                     return
             except Exception as e:
-                self.log(f"   ⚠️ Error detecting power bar: {e}")
                 continue
+    
+    def text_similarity(self, s1, s2):
+        """Calculate similarity ratio between two strings using Levenshtein distance."""
+        if not s1 or not s2:
+            return 0.0
         
-        # Bar not found
-        self.log(f"   ❌ Power bar not detected on screen (bar may not be full yet)")
+        # Normalize strings
+        s1 = s1.lower().strip()
+        s2 = s2.lower().strip()
         
-    def find_any_monster(self, images):
-        """Find any monster on screen from the list and return the closest one to screen center."""
-        screen_width, screen_height = pyautogui.size()
-        screen_center_x = screen_width // 2
-        screen_center_y = screen_height // 2
+        if s1 == s2:
+            return 1.0
         
-        all_found_mobs = []  # List of (distance, center_point, mob_name)
+        # Simple Levenshtein distance calculation
+        if len(s1) < len(s2):
+            s1, s2 = s2, s1
         
-        # Check all monster types
-        for img_path in images:
-            try:
-                # Find all matches for this monster type
-                locations = list(pyautogui.locateAllOnScreen(img_path, confidence=self.confidence, grayscale=False))
-                
-                if locations:
-                    mob_name = os.path.basename(img_path)
-                    # Add all found instances to list with their distance from screen center
-                    for loc in locations:
-                        center = pyautogui.center(loc)
-                        # Calculate distance from screen center (Euclidean distance)
-                        distance = ((center.x - screen_center_x) ** 2 + (center.y - screen_center_y) ** 2) ** 0.5
-                        all_found_mobs.append((distance, center, mob_name))
-            except:
-                continue
+        if len(s2) == 0:
+            return 0.0
         
-        # If any mobs found, return the closest one
-        if all_found_mobs:
-            # Sort by distance (closest first)
-            all_found_mobs.sort(key=lambda x: x[0])
-            closest_distance, closest_center, closest_name = all_found_mobs[0]
-            return closest_center, closest_name
+        previous_row = range(len(s2) + 1)
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
         
-        return None, None
+        distance = previous_row[-1]
+        max_len = max(len(s1), len(s2))
+        return 1.0 - (distance / max_len)
         
     def press_key(self, key):
         """Press a key using multiple methods for better compatibility."""
@@ -695,9 +635,8 @@ class BotGUI:
             except:
                 pass
             
-    def bot_loop(self, monster_images):
+    def bot_loop(self):
         time.sleep(2)  # Initial delay
-        hunt_mode = self.hunt_mode_var.get()
         
         while self.bot_running:
             # Check if Q key is pressed
@@ -706,124 +645,128 @@ class BotGUI:
                 break
                 
             try:
-                if hunt_mode == "region":
-                    # Region mode: Search for specific monsters in the defined region
-                    if not self.hunt_region:
-                        self.log("❌ Hunt region not set! Click 'Set Hunt Region' button.")
-                        time.sleep(3)
-                        continue
+                # OCR-based monster detection
+                if not self.hunt_region:
+                    self.log("❌ Hunt region not set! Click 'Set Hunt Region' button.")
+                    time.sleep(3)
+                    continue
+                
+                # Get monster names from user input
+                monster_names_input = self.region_monsters_entry.get()
+                if not monster_names_input.strip():
+                    self.log("❌ No monster names specified! Enter monster names (comma separated).")
+                    time.sleep(3)
+                    continue
+                
+                monster_names = [name.strip().lower() for name in monster_names_input.split(',')]
                     
-                    # Get monster names from user input
-                    monster_names_input = self.region_monsters_entry.get()
-                    if not monster_names_input.strip():
-                        self.log("❌ No monster names specified! Enter monster names (comma separated).")
-                        time.sleep(3)
-                        continue
+                # Take screenshot of the region
+                x, y, w, h = self.hunt_region
+                screenshot = pyautogui.screenshot(region=(x, y, w, h))
                     
-                    monster_names = [name.strip().lower() for name in monster_names_input.split(',')]
+                # Convert to OpenCV format for better OCR
+                img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                
+                # Apply thresholding for better text detection
+                _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+                
+                # Use Tesseract to get text with bounding boxes
+                try:
+                    ocr_data = pytesseract.image_to_data(thresh, output_type=pytesseract.Output.DICT, 
+                                                         config='--psm 6')
                     
-                    # Get all available monster files for smart matching
-                    available_monsters = {}
-                    if os.path.exists(MONSTERS_FOLDER):
-                        for file in os.listdir(MONSTERS_FOLDER):
-                            if file.endswith('.png'):
-                                # Store both original and normalized versions
-                                base_name = file[:-4]  # Remove .png
-                                normalized = base_name.lower().replace(' ', '').replace('-', '').replace('_', '')
-                                available_monsters[normalized] = file
-                    
-                    # Search for each monster in the region
+                    # Check for "Giant" text and auto TAB if enabled
+                    if self.auto_tab_on_giant:
+                        current_time = time.time()
+                        # Check cooldown
+                        if current_time - self.last_giant_tab >= self.giant_tab_cooldown:
+                            # Search for "Giant" in all OCR text
+                            for text in ocr_data['text']:
+                                if text.strip() and 'giant' in text.lower():
+                                    # Giant detected! Press TAB
+                                    self.giant_tab_count += 1
+                                    self.last_giant_tab = current_time
+                                    self.root.after(0, lambda: self.giant_tab_label.config(
+                                        text=f"🔥 Giant TABs: {self.giant_tab_count}"))
+                                    
+                                    keyboard.press_and_release('tab')
+                                    self.log(f"🔥 GIANT DETECTED! Auto TAB pressed (#{self.giant_tab_count})")
+                                    break  # Only press once per scan
+                        
+                    # Search for monster names in OCR results
                     found_monster = False
-                    for monster_name in monster_names:
-                        # Try direct match first
-                        monster_file = os.path.join(MONSTERS_FOLDER, f"{monster_name}.png")
+                    for i, text in enumerate(ocr_data['text']):
+                        if not text.strip():
+                            continue
                         
-                        # If direct match doesn't exist, try normalized matching
-                        if not os.path.exists(monster_file):
-                            normalized_input = monster_name.replace(' ', '').replace('-', '').replace('_', '')
-                            if normalized_input in available_monsters:
-                                monster_file = os.path.join(MONSTERS_FOLDER, available_monsters[normalized_input])
-                                self.log(f"💡 Matched '{monster_name}' to '{available_monsters[normalized_input]}'")
-                            else:
-                                continue
-                        
-                        try:
-                            # Search only within the hunt region
-                            location = pyautogui.locateOnScreen(monster_file, confidence=self.confidence, 
-                                                               region=self.hunt_region)
+                        text_lower = text.lower()
                             
-                            if location is not None:
-                                found_monster = True
-                                center_x, center_y = pyautogui.center(location)
-                                
-                                self.total_kills += 1
-                                self.root.after(0, lambda: self.kills_label.config(
-                                    text=f"Mobs Killed: {self.total_kills}"))
-                                
-                                self.log(f"🎯 [Region] Found {monster_name} at ({center_x}, {center_y})")
-                                
-                                # Power bar check
-                                if self.power_bar_enabled:
-                                    self.check_power_bar(monster_name)
-                                
-                                # Mouse movement and click (only if static mode is off)
-                                if not self.static_mode:
+                        # Check if any monster name matches
+                        for monster_name in monster_names:
+                            # Flexible matching: check if monster name is in the text or vice versa
+                            if monster_name in text_lower or text_lower in monster_name:
+                                # Also check similarity for partial matches
+                                if len(text_lower) >= 3 and (monster_name in text_lower or 
+                                                              text_lower in monster_name or
+                                                              self.text_similarity(monster_name, text_lower) > 0.6):
+                                    found_monster = True
+                                    
+                                    # Get bounding box coordinates
+                                    box_x = ocr_data['left'][i]
+                                    box_y = ocr_data['top'][i]
+                                    box_w = ocr_data['width'][i]
+                                    box_h = ocr_data['height'][i]
+                                    
+                                    # Calculate center in screen coordinates
+                                    center_x = x + box_x + box_w // 2
+                                    center_y = y + box_y + box_h // 2
+                                    
+                                    self.total_kills += 1
+                                    self.root.after(0, lambda: self.kills_label.config(
+                                        text=f"Mobs Killed: {self.total_kills}"))
+                                    
+                                    self.log(f"🎯 [OCR] Found '{text}' (matched: {monster_name}) at ({center_x}, {center_y})")
+                                    
+                                    # Power bar check
+                                    if self.power_bar_enabled:
+                                        self.check_power_bar(monster_name)
+                                    
+                                    # Mouse movement and click
                                     offset_x = center_x + random.randint(-5, 5)
                                     offset_y = center_y + random.randint(-5, 5)
                                     pyautogui.moveTo(offset_x, offset_y, duration=0.08)
                                     pydirectinput.click()
                                     time.sleep(0.1)
-                                
-                                # Press skills
-                                skill_log = "   Skills: "
-                                for skill in self.skills:
-                                    self.press_key(skill)
-                                    skill_log += f"{skill} "
-                                    time.sleep(self.skill_delay)
-                                
-                                self.log(skill_log + "✓")
-                                time.sleep(self.mob_delay)
-                                break  # Found a monster, restart the search
+                                    
+                                    # Press skills
+                                    skill_log = "   Skills: "
+                                    for skill in self.skills:
+                                        self.press_key(skill)
+                                        skill_log += f"{skill} "
+                                        time.sleep(self.skill_delay)
+                                    
+                                    self.log(skill_log + "✓")
+                                    time.sleep(self.mob_delay)
+                                    break
                         
-                        except Exception as e:
-                            continue
+                        if found_monster:
+                            break
                     
                     if not found_monster:
-                        # No monsters found in region, wait a bit
+                        # No monsters found, wait a bit
                         time.sleep(0.5)
-                    
-                else:
-                    # Image detection mode (original behavior)
-                    location, found_name = self.find_any_monster(monster_images)
-                    if location is not None:
-                        self.total_kills += 1
-                        self.root.after(0, lambda: self.kills_label.config(
-                            text=f"Mobs Killed: {self.total_kills}"))
-                        
-                        self.log(f"🎯 [{found_name}] found! Attacking...")
-                        
-                        # Power bar check for this specific mob (if enabled)
-                        if self.power_bar_enabled:
-                            self.check_power_bar(found_name)
-                        
-                        # Mouse movement and click (only if static mode is off)
-                        if not self.static_mode:
-                            offset_x = location.x + random.randint(-3, 3)
-                            offset_y = location.y + random.randint(-3, 3)
-                            pyautogui.moveTo(offset_x, offset_y, duration=0.08)  # Slight animated movement
-                            pydirectinput.click()
-                            time.sleep(0.1)  # Wait for target selection
-                        
-                        # Press skills
-                        skill_log = "   Skills: "
-                        for skill in self.skills:
-                            self.press_key(skill)
-                            skill_log += f"{skill} "
-                            time.sleep(self.skill_delay)
-                        
-                        self.log(skill_log + "✓")
-                        time.sleep(self.mob_delay)
-                    
+                
+                except Exception as e:
+                    error_msg = str(e)
+                    if "tesseract" in error_msg.lower():
+                        self.log(f"⚠️ OCR Error: Tesseract not installed!")
+                        self.log(f"   Run 'install_tesseract.bat' to install Tesseract OCR")
+                        self.log(f"   Or download from: https://github.com/UB-Mannheim/tesseract/wiki")
+                    else:
+                        self.log(f"⚠️ OCR Error: {error_msg}")
+                    time.sleep(3)
+                
             except Exception as e:
                 self.log(f"⚠️ Error: {e}")
                 time.sleep(1)

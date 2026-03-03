@@ -16,7 +16,7 @@
 
 - 🔍 **Two Hunt Modes**:
   - **Image Detection**: Traditional monster image recognition (requires screenshots)
-  - **Region Mode**: Define a hunt area and specify monster names - bot searches for those monsters within the region only
+  - **Region Mode (OCR)**: Define a hunt area and type monster names - bot uses OCR to read text on screen and attacks matching monsters (NO SCREENSHOTS NEEDED!)
 - ⚡ **Power Bar Automation**: Detects when your power bar is full and automatically presses TAB
 - 🖥️ **Modern GUI**: User-friendly interface with real-time statistics and logs
 - ⚙️ **Highly Customizable**: 
@@ -49,12 +49,19 @@ cd silkroad-vision-bot
 pip install -r requirements.txt
 ```
 
-3. **Prepare monster images**
+3. **Install Tesseract OCR** (Required for Region Mode)
+   - **Option 1 - Automatic (Windows)**: Double-click `install_tesseract.bat`
+   - **Option 2 - Manual**: Download and install from [Tesseract GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
+   - Make sure to use the default installation path: `C:\Program Files\Tesseract-OCR`
+   - **After installation**: Restart your terminal/command prompt
+
+4. **Prepare monster images** (Only for Image Detection mode)
    - Take screenshots of monster names or bodies
    - Save them as PNG files in the `monsters/` folder
    - Examples: `shakram.png`, `edimmu.png`
+   - **Note**: Not needed if using Region Mode with OCR!
 
-4. **(Optional) Prepare power bar image**
+5. **(Optional) Prepare power bar image**
    - Take a screenshot of your **FULL** power bar
    - Save it as `bar_full.png` in the `power_bar/` folder
 
@@ -88,16 +95,15 @@ python bot.py
 
 2. **Hunt Mode**
    - **📸 Image Detection**: Uses monster screenshots (requires images in monsters/ folder)
-   - **🎯 Region Mode**: Define a hunt area and specify monster names, bot searches for those monsters only within that region
+   - **🎯 Region Mode (OCR)**: Uses OCR to read monster names on screen - NO IMAGES NEEDED!
      - Click "Set Hunt Region" button
      - Click OK on the dialog
      - **Draw a rectangle with your mouse** on your game screen (click and drag)
      - Release mouse button to confirm
-     - **Enter monster names** in the "Monster Names" field (comma separated, e.g., "shakram, edimmu, giant")
-     - The bot uses **smart matching** - spaces, hyphens, and underscores are ignored
-     - Examples: "strong earth ghost" matches "strongearthghost.png" or "strong_earth_ghost.png"
-     - Bot will search for those specific monsters only within the selected region
-     - More accurate than grid clicking - only attacks real monsters!
+     - **Enter monster names** in the "Monster Names" field (comma separated, e.g., "strong earth ghost, edimmu, giant")
+     - Bot will use Tesseract OCR to read text within the region and attack matching monsters
+     - No need for screenshots! Just type the monster names and go!
+     - Flexible matching - partial names work too (e.g., "earth ghost" matches "Strong Earth Ghost Soldier")
 
 3. **Skill Interval** (0.1 - 1.0 seconds)
    - Time between skill presses
@@ -197,7 +203,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 - 🔍 **İki Avlanma Modu**:
   - **Görüntü Tespiti**: Geleneksel mob resim tanıma (ekran görüntüsü gerektirir)
-  - **Bölge Modu**: Bir avlanma alanı belirle ve canavar isimlerini yaz - bot sadece o canavarları o bölgede arar
+  - **Bölge Modu (OCR)**: Bir avlanma alanı belirle ve canavar isimlerini yaz - bot OCR ile ekrandaki yazıları okur (EKRAN GÖRÜNTÜSÜ GEREKMEZ!)
 - ⚡ **Güç Barı Otomasyonu**: Bar dolduğunda otomatik TAB tuşuna basma
 - 🖥️ **Modern Arayüz**: Kullanıcı dostu arayüz, canlı istatistikler ve loglar
 - ⚙️ **Tamamen Özelleştirilebilir**: 
@@ -230,12 +236,19 @@ cd silkroad-vision-bot
 pip install -r requirements.txt
 ```
 
-3. **Mob resimlerini hazırlayın**
+3. **Tesseract OCR'ı kurun** (Bölge Modu için gerekli)
+   - **Seçenek 1 - Otomatik (Windows)**: `install_tesseract.bat` dosyasına çift tıklayın
+   - **Seçenek 2 - Manuel**: [Tesseract GitHub](https://github.com/UB-Mannheim/tesseract/wiki) adresinden indirip kurun
+   - Varsayılan kurulum yolunu kullanın: `C:\Program Files\Tesseract-OCR`
+   - **Kurulumdan sonra**: Terminal/komut istemini yeniden başlatın
+
+4. **Mob resimlerini hazırlayın** (Sadece Görüntü Tespiti modu için)
    - Mob isimlerinin veya gövdelerinin ekran görüntüsünü alın
    - `monsters/` klasörüne PNG olarak kaydedin
    - Örnek: `shakram.png`, `edimmu.png`
+   - **Not**: Bölge Modu ile OCR kullanıyorsanız gerekli değil!
 
-4. **(Opsiyonel) Güç barı resmini hazırlayın**
+5. **(Opsiyonel) Güç barı resmini hazırlayın**
    - **DOLU** güç barının ekran görüntüsünü alın
    - `power_bar/` klasörüne `bar_full.png` olarak kaydedin
 
@@ -269,14 +282,15 @@ python bot.py
 
 2. **Avlanma Modu**
    - **📸 Görüntü Tespiti**: Mob ekran görüntüleri kullanır (monsters/ klasöründe resim gerekir)
-   - **🎯 Bölge Modu**: Bir avlanma alanı belirle ve canavar isimlerini yaz, bot sadece o canavarları o bölgede arar
+   - **🎯 Bölge Modu (OCR)**: OCR ile ekrandaki yazıları okur - RESİM GEREKMEZ!
      - "Set Hunt Region" butonuna tıkla
      - Açılan pencerede OK'e bas
      - **Oyun ekranında fareyle dikdörtgen çiz** (tıklayıp sürükle)
      - Fare butonunu bırakarak onayla
-     - **Canavar isimlerini gir** "Monster Names" alanına (virgülle ayrılmış, örn: "shakram, edimmu, giant")
-     - Bot sadece seçilen bölgede bu canavarları arayacak
-     - Izgara tıklamasından daha doğru - sadece gerçek canavarları hedef alır!
+     - **Canavar isimlerini gir** "Monster Names" alanına (virgülle ayrılmış, örn: "strong earth ghost, edimmu")
+     - Bot Tesseract OCR ile bölge içindeki yazıları okuyup eşleşen canavarları saldırır
+     - Ekran görüntüsü almaya gerek yok! Sadece ismi yaz ve başlat!
+     - Esnek eşleştirme - kısmi isimler de çalışır (örn: "earth ghost" → "Strong Earth Ghost Soldier")
 
 3. **Skill Aralığı** (0.1 - 1.0 saniye)
    - Skill basışları arası süre

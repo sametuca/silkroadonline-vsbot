@@ -4,9 +4,72 @@ Quick test to verify Tesseract OCR is working
 import pytesseract
 from PIL import Image, ImageDraw, ImageFont
 import os
+import subprocess
+import shutil
 
-# Set Tesseract path
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Tesseract Auto-Detection Function
+def find_tesseract():
+    """Automatically find Tesseract installation on Windows."""
+    if os.name != 'nt':
+        return None
+    
+    # Method 1: Check Windows Registry
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Tesseract-OCR")
+        install_path = winreg.QueryValueEx(key, "InstallDir")[0]
+        winreg.CloseKey(key)
+        tesseract_path = os.path.join(install_path, "tesseract.exe")
+        if os.path.exists(tesseract_path):
+            print(f"✅ Tesseract found via Registry: {tesseract_path}")
+            return tesseract_path
+    except:
+        pass
+    
+    # Method 2: Check PATH environment variable
+    tesseract_in_path = shutil.which("tesseract")
+    if tesseract_in_path:
+        print(f"✅ Tesseract found in PATH: {tesseract_in_path}")
+        return tesseract_in_path
+    
+    # Method 3: Use 'where' command to find tesseract
+    try:
+        result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            tesseract_path = result.stdout.strip().split('\n')[0]
+            if os.path.exists(tesseract_path):
+                print(f"✅ Tesseract found via 'where' command: {tesseract_path}")
+                return tesseract_path
+    except:
+        pass
+    
+    # Method 4: Check common installation locations
+    possible_paths = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        r'C:\Tesseract-OCR\tesseract.exe',
+        os.path.expandvars(r'%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe'),
+        os.path.expandvars(r'%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe'),
+        os.path.expandvars(r'%APPDATA%\Tesseract-OCR\tesseract.exe'),
+        os.path.expandvars(r'%ProgramW6432%\Tesseract-OCR\tesseract.exe'),
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"✅ Tesseract found: {path}")
+            return path
+    
+    print("⚠️ Tesseract not found automatically.")
+    return None
+
+# Auto-detect and set Tesseract path
+tesseract_path = find_tesseract()
+if tesseract_path:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+else:
+    print("❌ Tesseract OCR not found!")
+    print("   Install from: https://github.com/UB-Mannheim/tesseract/wiki")
+    exit(1)
 
 print("=" * 60)
 print("🔍 TESSERACT OCR TEST")
