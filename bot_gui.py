@@ -9,88 +9,22 @@ import random
 import keyboard
 import ctypes
 from ctypes import wintypes
-import pytesseract
 from PIL import Image
 import cv2
 import numpy as np
-import subprocess
-import winreg
-import shutil
-
-# Tesseract Auto-Detection Function
-def find_tesseract():
-    """Automatically find Tesseract installation on Windows."""
-    if os.name != 'nt':
-        return None
-    
-    # Method 1: Check Windows Registry
-    try:
-        import winreg
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Tesseract-OCR")
-        install_path = winreg.QueryValueEx(key, "InstallDir")[0]
-        winreg.CloseKey(key)
-        tesseract_path = os.path.join(install_path, "tesseract.exe")
-        if os.path.exists(tesseract_path):
-            print(f"✅ Tesseract found via Registry: {tesseract_path}")
-            return tesseract_path
-    except:
-        pass
-    
-    # Method 2: Check PATH environment variable
-    tesseract_in_path = shutil.which("tesseract")
-    if tesseract_in_path:
-        print(f"✅ Tesseract found in PATH: {tesseract_in_path}")
-        return tesseract_in_path
-    
-    # Method 3: Use 'where' command to find tesseract
-    try:
-        result = subprocess.run(['where', 'tesseract'], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and result.stdout.strip():
-            tesseract_path = result.stdout.strip().split('\n')[0]
-            if os.path.exists(tesseract_path):
-                print(f"✅ Tesseract found via 'where' command: {tesseract_path}")
-                return tesseract_path
-    except:
-        pass
-    
-    # Method 4: Check common installation locations
-    possible_paths = [
-        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-        r'C:\Tesseract-OCR\tesseract.exe',
-        os.path.expandvars(r'%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe'),
-        os.path.expandvars(r'%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe'),
-        os.path.expandvars(r'%APPDATA%\Tesseract-OCR\tesseract.exe'),
-        os.path.expandvars(r'%ProgramW6432%\Tesseract-OCR\tesseract.exe'),
-    ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            print(f"✅ Tesseract found: {path}")
-            return path
-    
-    print("⚠️ Tesseract not found automatically. Please install it or add to PATH.")
-    return None
-
-# Configure Tesseract path automatically
-tesseract_path = find_tesseract()
-if tesseract_path:
-    pytesseract.pytesseract.tesseract_cmd = tesseract_path
-else:
-    print("❌ Tesseract OCR not found! OCR features will not work.")
-    print("   Install from: https://github.com/UB-Mannheim/tesseract/wiki")
 
 # Optimize pydirectinput pause for games
 pydirectinput.PAUSE = 0
 
-# Power bar images folder
-POWER_BAR_FOLDER = 'power_bar'
+
 
 # Windows API constants for SendInput
 KEYEVENTF_KEYDOWN = 0x0000
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_SCANCODE = 0x0008
 KEYEVENTF_EXTENDEDKEY = 0x0001
+INPUT_KEYBOARD = 1
+ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
 
 # Virtual Key Codes
 VK_CODES = {
@@ -113,7 +47,7 @@ class KEYBDINPUT(ctypes.Structure):
         ("wScan", wintypes.WORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))
+        ("dwExtraInfo", ULONG_PTR)
     ]
 
 class INPUT(ctypes.Structure):
@@ -138,22 +72,22 @@ class BotGUI:
         self.skill_delay = 0.15
         self.mob_delay = 0.2
         self.skills = ['1', '2', '3', '4']
+        self.keypress_only_mode = True  # Run only key presses without monster detection
+        self.input_method = "auto"  # auto, sendinput, pydirectinput, keyboard
         
         # Hunt region for OCR-based detection
         self.hunt_region = None  # Hunt region (x, y, width, height)
         self.click_points = []  # Pre-calculated click points in region
         self.current_click_index = 0  # Current point index
         
-        self.power_bar_enabled = False  # Power bar detection
-        self.power_bar_check_interval = 17.0  # Bar check interval (seconds)
-        self.last_power_bar_check = 0
-        self.power_bar_uses = 0  # How many times TAB pressed
+        # Detection Mode
+        self.detection_mode = "template"  # Template matching mode only
+        self.monster_templates = {}  # {monster_name: cv2_image}
+        self.template_threshold = 0.4  # Minimum match confidence (lowered for better detection)
+        self.template_debug = True  # Show all match scores for debugging
         
-        # Auto TAB on Giant detection
-        self.auto_tab_on_giant = False  # Auto press TAB when "Giant" text is detected
-        self.giant_tab_cooldown = 15.0  # Cooldown between TAB presses for Giant
-        self.last_giant_tab = 0  # Last time TAB was pressed for Giant
-        self.giant_tab_count = 0  # How many times TAB pressed for Giant
+        # Load monster templates from folder
+        self.load_monster_templates()
         
         # Statistics
         self.total_kills = 0
@@ -202,14 +136,8 @@ class BotGUI:
         self.kills_label = ttk.Label(status_frame, text="Mobs Killed: 0", font=("Arial", 10))
         self.kills_label.grid(row=1, column=0, pady=2)
         
-        self.power_bar_label = ttk.Label(status_frame, text="⚡ Power Used: 0", font=("Arial", 10))
-        self.power_bar_label.grid(row=2, column=0, pady=2)
-        
-        self.giant_tab_label = ttk.Label(status_frame, text="🔥 Giant TABs: 0", font=("Arial", 10))
-        self.giant_tab_label.grid(row=3, column=0, pady=2)
-        
         self.time_label = ttk.Label(status_frame, text="Running Time: 00:00:00", font=("Arial", 10))
-        self.time_label.grid(row=4, column=0, pady=2)
+        self.time_label.grid(row=2, column=0, pady=2)
         
         # Settings panel
         settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Settings", padding="10")
@@ -239,49 +167,50 @@ class BotGUI:
         self.skills_entry.insert(0, "1,2,3,4")
         self.skills_entry.grid(row=2, column=1, padx=5, sticky=tk.W)
         ttk.Label(settings_frame, text="(comma separated)").grid(row=2, column=2, sticky=tk.W)
+
+        # Keypress-only mode
+        self.keypress_only_var = tk.BooleanVar(value=True)
+        keypress_only_check = ttk.Checkbutton(
+            settings_frame,
+            text="⌨️ Sadece Tuş Vuruşu Modu (Canavar seçimi kapalı)",
+            variable=self.keypress_only_var,
+            command=self.toggle_keypress_only_mode
+        )
+        keypress_only_check.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=8)
+
+        # Input method selection
+        ttk.Label(settings_frame, text="Input Method:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        self.input_method_var = tk.StringVar(value="Auto (Recommended)")
+        self.input_method_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.input_method_var,
+            state="readonly",
+            width=28,
+            values=[
+                "Auto (Recommended)",
+                "SendInput (Scan Code)",
+                "PyDirectInput",
+                "Keyboard Library"
+            ]
+        )
+        self.input_method_combo.grid(row=4, column=1, columnspan=2, sticky=tk.W, padx=5)
+        self.input_method_combo.bind("<<ComboboxSelected>>", self.update_input_method)
         
         # Set Hunt Region button
-        self.set_hunt_region_button = ttk.Button(settings_frame, text="📍 Set Hunt Region (OCR-based Detection)", 
+        self.set_hunt_region_button = ttk.Button(settings_frame, text="📍 Set Hunt Region (Template Detection)", 
                                                  command=self.set_hunt_region)
-        self.set_hunt_region_button.grid(row=3, column=0, columnspan=3, pady=10)
+        self.set_hunt_region_button.grid(row=5, column=0, columnspan=3, pady=10)
         
-        # Monster names
-        ttk.Label(settings_frame, text="Monster Names:").grid(row=4, column=0, sticky=tk.W, pady=5)
-        self.region_monsters_entry = ttk.Entry(settings_frame, width=25)
-        self.region_monsters_entry.insert(0, "shakram, edimmu")
-        self.region_monsters_entry.grid(row=4, column=1, padx=5, sticky=tk.W)
-        ttk.Label(settings_frame, text="(comma separated)").grid(row=4, column=2, sticky=tk.W)
-        
-        # Power Bar detection
-        self.power_bar_var = tk.BooleanVar(value=False)
-        power_bar_check = ttk.Checkbutton(settings_frame, text="⚡ Power Bar Detection (TAB key)", 
-                                         variable=self.power_bar_var, command=self.toggle_power_bar)
-        power_bar_check.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=10)
-        
-        # Power bar check interval
-        ttk.Label(settings_frame, text="Bar Check Interval (sec):").grid(row=6, column=0, sticky=tk.W, pady=5)
-        self.bar_check_var = tk.DoubleVar(value=17.0)
-        bar_check_slider = ttk.Scale(settings_frame, from_=5.0, to=30.0, variable=self.bar_check_var,
-                                    orient=tk.HORIZONTAL, length=200, command=self.update_bar_interval)
-        bar_check_slider.grid(row=6, column=1, padx=5)
-        self.bar_check_label = ttk.Label(settings_frame, text="17.0")
-        self.bar_check_label.grid(row=6, column=2)
-        
-        # Auto TAB on Giant detection (OCR-based)
-        self.auto_tab_giant_var = tk.BooleanVar(value=False)
-        auto_tab_giant_check = ttk.Checkbutton(settings_frame, text="🔥 Auto TAB when 'Giant' detected (OCR)", 
-                                               variable=self.auto_tab_giant_var, command=self.toggle_auto_tab_giant)
-        auto_tab_giant_check.grid(row=7, column=0, columnspan=3, sticky=tk.W, pady=10)
-        
-        # Giant TAB cooldown
-        ttk.Label(settings_frame, text="Giant TAB Cooldown (sec):").grid(row=8, column=0, sticky=tk.W, pady=5)
-        self.giant_tab_cooldown_var = tk.DoubleVar(value=15.0)
-        giant_cooldown_slider = ttk.Scale(settings_frame, from_=5.0, to=30.0, variable=self.giant_tab_cooldown_var,
-                                         orient=tk.HORIZONTAL, length=200, command=self.update_giant_cooldown)
-        giant_cooldown_slider.grid(row=8, column=1, padx=5)
-        self.giant_cooldown_label = ttk.Label(settings_frame, text="15.0")
-        self.giant_cooldown_label.grid(row=8, column=2)
-        
+        # Template threshold (for template matching mode)
+        ttk.Label(settings_frame, text="Template Threshold:").grid(row=6, column=0, sticky=tk.W, pady=5)
+        self.template_threshold_var = tk.DoubleVar(value=0.4)
+        template_threshold_slider = ttk.Scale(settings_frame, from_=0.1, to=0.9, variable=self.template_threshold_var,
+                                            orient=tk.HORIZONTAL, length=200, command=self.update_template_threshold)
+        template_threshold_slider.grid(row=6, column=1, padx=5)
+        self.template_threshold_label = ttk.Label(settings_frame, text="0.40")
+        self.template_threshold_label.grid(row=6, column=2)
+        ttk.Label(settings_frame, text="(düşük=hassas, yüksek=katı)", font=("Arial", 8), foreground="gray").grid(row=6, column=0, columnspan=3, sticky=tk.E, pady=0)
+
         # Buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=3, column=0, columnspan=2, pady=15)
@@ -313,27 +242,39 @@ class BotGUI:
     def update_mob_delay(self, value):
         self.mob_delay = float(value)
         self.mob_delay_label.config(text=f"{self.mob_delay:.2f}")
+    
+    def update_ocr_speed(self):
+        self.ocr_speed_mode = self.ocr_speed_var.get()
+        speed_names = {"fast": "⚡ Fast", "normal": "⚖️ Normal", "accurate": "🎯 Accurate"}
+        self.log(f"OCR Speed: {speed_names.get(self.ocr_speed_mode, 'Unknown')}")
+
+    def update_template_threshold(self, value):
+        self.template_threshold = float(value)
+        self.template_threshold_label.config(text=f"{self.template_threshold:.2f}")
         
-    def update_bar_interval(self, value):
-        self.power_bar_check_interval = float(value)
-        self.bar_check_label.config(text=f"{self.power_bar_check_interval:.1f}")
-    
-    def update_giant_cooldown(self, value):
-        self.giant_tab_cooldown = float(value)
-        self.giant_cooldown_label.config(text=f"{self.giant_tab_cooldown:.1f}")
-    
-    def toggle_auto_tab_giant(self):
-        self.auto_tab_on_giant = self.auto_tab_giant_var.get()
-        if self.auto_tab_on_giant:
-            self.log("🔥 Auto TAB on Giant: ON")
-            self.log(f"   TAB will be pressed when 'Giant' text is detected")
-            self.log(f"   Cooldown: {self.giant_tab_cooldown:.1f}s between TABs")
+    def update_input_method(self, event=None):
+        method_text = self.input_method_var.get()
+        method_map = {
+            "Auto (Recommended)": "auto",
+            "SendInput (Scan Code)": "sendinput",
+            "PyDirectInput": "pydirectinput",
+            "Keyboard Library": "keyboard"
+        }
+        self.input_method = method_map.get(method_text, "auto")
+        self.log(f"⌨️ Input Method: {method_text}")
+
+    def toggle_keypress_only_mode(self):
+        self.keypress_only_mode = self.keypress_only_var.get()
+        if self.keypress_only_mode:
+            self.log("⌨️ Sadece Tuş Vuruşu Modu: ON")
+            self.log("   Canavar seçimi yapılmayacak")
         else:
-            self.log("❌ Auto TAB on Giant: OFF")
+            self.log("🎯 Template Av Modu: ON")
+            self.log("   Monsters klasöründeki template'lerden canavar seçimi yapılacak")
     
     def set_hunt_region(self):
         """Let user select a hunt region by drawing on screen."""
-        self.log("📍 Hunt Region Selection (OCR-based Detection)")
+        self.log("📍 Hunt Region Selection (Template-based Detection)")
         self.log("   1. Click OK on the dialog")
         self.log("   2. Click and drag to draw a rectangle on your game")
         self.log("   3. Release mouse to confirm")
@@ -438,20 +379,10 @@ class BotGUI:
         ttk.Button(dialog, text="OK - Start Selection", command=start_selection).pack(pady=15)
         ttk.Button(dialog, text="Cancel", command=lambda: [dialog.destroy(), self.log("❌ Region selection cancelled")]).pack()
             
-    def toggle_power_bar(self):
-        self.power_bar_enabled = self.power_bar_var.get()
-        if self.power_bar_enabled:
-            self.log("⚡ Power Bar: ON")
-            # Check if power bar image exists
-            bar_images = self.get_power_bar_images()
-            if not bar_images:
-                self.log(f"⚠️ WARNING: 'bar_full.png' not found in '{POWER_BAR_FOLDER}' folder!")
-            else:
-                self.log(f"✅ Bar image loaded: {os.path.basename(bar_images[0])}")
-        else:
-            self.log("⚡ Power Bar Detection OFF")
-        
+    
     def log(self, message):
+        if not hasattr(self, 'log_text'):
+            return
         self.log_text.config(state=tk.NORMAL)
         self.log_text.insert(tk.END, f"{message}\n")
         self.log_text.see(tk.END)
@@ -466,23 +397,18 @@ class BotGUI:
             self.log("❌ ERROR: Skill keys cannot be empty!")
             return
         
-        # Check hunt region
-        if not self.hunt_region:
-            self.log("❌ ERROR: Hunt region not set!")
-            self.log("   Click 'Set Hunt Region' button first")
-            return
-        
-        # Check if monster names are provided
-        monster_names_input = self.region_monsters_entry.get().strip()
-        if not monster_names_input:
-            self.log("❌ ERROR: No monster names specified!")
-            self.log("   Enter monster names in the 'Monster Names' field (comma separated)")
-            return
-        
-        # Log that we're using OCR mode
-        monster_names = [name.strip() for name in monster_names_input.split(',')]
-        self.log(f"✅ OCR-based detection (no images needed!)")
-        self.log(f"   Hunting: {', '.join(monster_names)}")
+        if not self.keypress_only_mode:
+            # Check hunt region
+            if not self.hunt_region:
+                self.log("❌ ERROR: Hunt region not set!")
+                self.log("   Click 'Set Hunt Region' button first")
+                return
+
+            # Template mode: check if templates are loaded
+            if not self.monster_templates:
+                self.log("❌ ERROR: No monster templates loaded!")
+                self.log("   Add PNG files to monsters/ folder")
+                return
         
         self.bot_running = True
         self.total_kills = 0
@@ -495,24 +421,23 @@ class BotGUI:
         self.log("=" * 60)
         self.log("🚀 BOT STARTED!")
         
-        # Log hunt info
-        x, y, w, h = self.hunt_region
-        self.log(f"📍 Hunt Region: X={x}, Y={y}, W={w}, H={h}")
-        monster_names_input = self.region_monsters_entry.get().strip()
-        monster_names = [name.strip() for name in monster_names_input.split(',')]
-        self.log(f"🎯 Hunting: {', '.join(monster_names)}")
+        # Log run mode info
+        if self.keypress_only_mode:
+            self.log("⌨️ Mode: KEYPRESS ONLY")
+            self.log("   Canavar seçimi yapılmadan skill döngüsü çalışacak")
+        elif self.detection_mode == "template":
+            x, y, w, h = self.hunt_region
+            self.log(f"📸 Mode: TEMPLATE DETECTION")
+            self.log(f"📍 Hunt Region: X={x}, Y={y}, W={w}, H={h}")
+            self.log(f"📊 Templates loaded: {len(self.monster_templates)}")
+            for monster in self.monster_templates.keys():
+                self.log(f"   ▶ {monster}")
+        
         self.log(f"🎯 Skill keys: {', '.join(self.skills)}")
+        self.log(f"⌨️ Input method: {self.input_method_var.get()}")
         self.log(f"⚙️ Skill interval: {self.skill_delay}s")
         self.log(f"⚙️ Mob interval: {self.mob_delay}s")
-        if self.power_bar_enabled:
-            bar_images = self.get_power_bar_images()
-            self.log(f"⚡ Power Bar: ON")
-            self.log(f"   Check interval: {self.power_bar_check_interval}s")
-            if bar_images:
-                self.log(f"   ✅ {len(bar_images)} bar image(s) loaded")
-        if self.auto_tab_on_giant:
-            self.log(f"🔥 Auto TAB on Giant: ON")
-            self.log(f"   Cooldown: {self.giant_tab_cooldown:.1f}s between TABs")
+        self.log(f"🎨 Template threshold: {self.template_threshold:.2f}")
         self.log("=" * 60)
         
         # Start bot thread
@@ -537,56 +462,6 @@ class BotGUI:
             seconds = elapsed % 60
             self.time_label.config(text=f"Running Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
             self.root.after(1000, self.update_timer)
-            
-    def get_power_bar_images(self):
-        """Load power bar images."""
-        valid_extensions = ('.png', '.jpg', '.jpeg')
-        images = []
-        
-        if not os.path.exists(POWER_BAR_FOLDER):
-            os.makedirs(POWER_BAR_FOLDER)
-            return images
-            
-        for filename in os.listdir(POWER_BAR_FOLDER):
-            if filename.lower().endswith(valid_extensions):
-                images.append(os.path.join(POWER_BAR_FOLDER, filename))
-                
-        return images
-        
-    def check_power_bar(self, current_mob_name=""):
-        """Check if power bar is full and press TAB."""
-        current_time = time.time()
-        
-        # Skip if check interval hasn't passed
-        if current_time - self.last_power_bar_check < self.power_bar_check_interval:
-            time_remaining = self.power_bar_check_interval - (current_time - self.last_power_bar_check)
-            return
-            
-        self.last_power_bar_check = current_time
-        
-        bar_images = self.get_power_bar_images()
-        if not bar_images:
-            return
-        
-        for img_path in bar_images:
-            try:
-                # Search for bar (lower confidence, lighting may vary)
-                location = pyautogui.locateOnScreen(img_path, confidence=0.70, grayscale=False)
-                
-                if location is not None:
-                    # Bar found! Press TAB
-                    self.power_bar_uses += 1
-                    self.root.after(0, lambda: self.power_bar_label.config(
-                        text=f"⚡ Power Used: {self.power_bar_uses}"))
-                    
-                    keyboard.press_and_release('tab')
-                    self.log(f"⚡ POWER ACTIVATED! (#{self.power_bar_uses})")
-                    
-                    # Wait 10 seconds after using power (for bar to refill)
-                    self.last_power_bar_check = current_time + 10
-                    return
-            except Exception as e:
-                continue
     
     def text_similarity(self, s1, s2):
         """Calculate similarity ratio between two strings using Levenshtein distance."""
@@ -621,19 +496,186 @@ class BotGUI:
         max_len = max(len(s1), len(s2))
         return 1.0 - (distance / max_len)
         
-    def press_key(self, key):
-        """Press a key using multiple methods for better compatibility."""
+    def load_monster_templates(self):
+        """Load monster template images from monsters/ folder."""
         try:
-            # Method 1: Try pydirectinput (best for games)
-            pydirectinput.press(key)
-            time.sleep(0.01)
+            if not os.path.exists('monsters'):
+                self.log("⚠️ monsters/ klasörü bulunamadı!")
+                return
+            
+            self.monster_templates = {}
+            monster_files = [f for f in os.listdir('monsters') if f.lower().endswith('.png')]
+            
+            for filename in monster_files:
+                filepath = os.path.join('monsters', filename)
+                try:
+                    img = cv2.imread(filepath, cv2.IMREAD_COLOR)
+                    if img is not None:
+                        # Use filename without .png as monster name
+                        monster_name = filename[:-4]  # Remove .png extension
+                        self.monster_templates[monster_name] = img
+                        self.log(f"✅ Template yüklendi: {monster_name}")
+                except Exception as e:
+                    self.log(f"❌ Template yükleme hatası ({filename}): {e}")
+            
+            if self.monster_templates:
+                self.log(f"📊 Toplam {len(self.monster_templates)} monster template yüklendi")
+            else:
+                self.log("⚠️ monsters/ klasöründe PNG dosyası bulunamadı!")
+                
         except Exception as e:
-            # Method 2: Fallback to keyboard library
-            try:
-                keyboard.press_and_release(key)
-                time.sleep(0.01)
-            except:
-                pass
+            self.log(f"❌ Monster templates yüklenirken hata: {e}")
+    
+    def detect_monster_template(self, screenshot):
+        """
+        Detect monster in screenshot using template matching.
+        Returns (monster_name, confidence, x, y) or (None, 0, 0, 0)
+        """
+        if not self.monster_templates:
+            return None, 0, 0, 0
+        
+        try:
+            # Convert PIL image to OpenCV format
+            img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+            gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            best_match = None
+            best_confidence = 0
+            best_x, best_y = 0, 0
+            
+            # Try each template
+            for monster_name, template in self.monster_templates.items():
+                try:
+                    gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+                    
+                    # Check template is not bigger than image
+                    if gray_template.shape[0] > gray_img.shape[0] or gray_template.shape[1] > gray_img.shape[1]:
+                        if self.template_debug:
+                            self.log(f"⚠️ {monster_name}: Template çok büyük (template: {gray_template.shape}, img: {gray_img.shape})")
+                        continue
+                    
+                    # Use correlation matching
+                    result = cv2.matchTemplate(gray_img, gray_template, cv2.TM_CCOEFF_NORMED)
+                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+                    
+                    # Debug: show confidence score for all templates
+                    if self.template_debug and max_val > 0.2:
+                        self.log(f"📸 {monster_name}: Confidence = {max_val:.2f} (threshold: {self.template_threshold:.2f})")
+                    
+                    # max_val is the normalized correlation value (0-1)
+                    if max_val > best_confidence and max_val >= self.template_threshold:
+                        best_confidence = max_val
+                        best_match = monster_name
+                        best_x, best_y = max_loc
+                        
+                except Exception as e:
+                    self.log(f"⚠️ Template eşleştirme hatası ({monster_name}): {e}")
+                    continue
+            
+            if best_match:
+                return best_match, best_confidence, best_x, best_y
+            else:
+                return None, 0, 0, 0
+                
+        except Exception as e:
+            self.log(f"⚠️ Detect monster hatası: {e}")
+            return None, 0, 0, 0
+        
+    def press_key(self, key):
+        """Press a key using selected input method, with safe fallbacks."""
+        method = self.input_method
+
+        if method == "sendinput":
+            if self.send_scan_code_key(key):
+                return
+            if self.send_pydirectinput_key(key):
+                return
+            self.send_keyboard_key(key)
+            return
+
+        if method == "pydirectinput":
+            if self.send_pydirectinput_key(key):
+                return
+            if self.send_scan_code_key(key):
+                return
+            self.send_keyboard_key(key)
+            return
+
+        if method == "keyboard":
+            if self.send_keyboard_key(key):
+                return
+            if self.send_scan_code_key(key):
+                return
+            self.send_pydirectinput_key(key)
+            return
+
+        # auto mode
+        if self.send_scan_code_key(key):
+            return
+        if self.send_pydirectinput_key(key):
+            return
+        self.send_keyboard_key(key)
+
+    def send_pydirectinput_key(self, key):
+        try:
+            pydirectinput.keyDown(key)
+            time.sleep(0.01)
+            pydirectinput.keyUp(key)
+            time.sleep(0.01)
+            return True
+        except Exception:
+            return False
+
+    def send_keyboard_key(self, key):
+        try:
+            keyboard.press_and_release(key)
+            time.sleep(0.01)
+            return True
+        except Exception:
+            return False
+
+    def send_scan_code_key(self, key):
+        """Send key press with Windows SendInput using scan codes."""
+        scan_code = SCAN_CODES.get(key)
+        if scan_code is None:
+            return False
+
+        try:
+            key_down = INPUT(type=INPUT_KEYBOARD)
+            key_down.union.ki = KEYBDINPUT(
+                wVk=0,
+                wScan=scan_code,
+                dwFlags=KEYEVENTF_SCANCODE,
+                time=0,
+                dwExtraInfo=0
+            )
+
+            key_up = INPUT(type=INPUT_KEYBOARD)
+            key_up.union.ki = KEYBDINPUT(
+                wVk=0,
+                wScan=scan_code,
+                dwFlags=KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                time=0,
+                dwExtraInfo=0
+            )
+
+            sent_down = ctypes.windll.user32.SendInput(1, ctypes.byref(key_down), ctypes.sizeof(INPUT))
+            time.sleep(0.01)
+            sent_up = ctypes.windll.user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(INPUT))
+            return sent_down == 1 and sent_up == 1
+        except Exception:
+            return False
+
+    def run_keypress_cycle(self):
+        """Run a single keypress cycle without monster detection."""
+        skill_log = "⌨️ Skills: "
+        for skill in self.skills:
+            self.press_key(skill)
+            skill_log += f"{skill} "
+            time.sleep(self.skill_delay)
+
+        self.log(skill_log + "✓")
+        time.sleep(self.mob_delay)
             
     def bot_loop(self):
         time.sleep(2)  # Initial delay
@@ -645,128 +687,66 @@ class BotGUI:
                 break
                 
             try:
-                # OCR-based monster detection
-                if not self.hunt_region:
-                    self.log("❌ Hunt region not set! Click 'Set Hunt Region' button.")
-                    time.sleep(3)
+                if self.keypress_only_mode:
+                    self.run_keypress_cycle()
                     continue
-                
-                # Get monster names from user input
-                monster_names_input = self.region_monsters_entry.get()
-                if not monster_names_input.strip():
-                    self.log("❌ No monster names specified! Enter monster names (comma separated).")
-                    time.sleep(3)
-                    continue
-                
-                monster_names = [name.strip().lower() for name in monster_names_input.split(',')]
+
+                if self.detection_mode == "template":
+                    # Template-based monster detection
+                    if not self.hunt_region:
+                        self.log("❌ Hunt region not set! Click 'Set Hunt Region' button.")
+                        time.sleep(3)
+                        continue
                     
-                # Take screenshot of the region
-                x, y, w, h = self.hunt_region
-                screenshot = pyautogui.screenshot(region=(x, y, w, h))
+                    if not self.monster_templates:
+                        self.log("❌ Monster templates not loaded! Başlangıçta yüklemeye çalış.")
+                        self.load_monster_templates()
+                        time.sleep(3)
+                        continue
                     
-                # Convert to OpenCV format for better OCR
-                img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                
-                # Apply thresholding for better text detection
-                _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-                
-                # Use Tesseract to get text with bounding boxes
-                try:
-                    ocr_data = pytesseract.image_to_data(thresh, output_type=pytesseract.Output.DICT, 
-                                                         config='--psm 6')
+                    # Take screenshot of hunt region
+                    x, y, w, h = self.hunt_region
+                    screenshot = pyautogui.screenshot(region=(x, y, w, h))
                     
-                    # Check for "Giant" text and auto TAB if enabled
-                    if self.auto_tab_on_giant:
-                        current_time = time.time()
-                        # Check cooldown
-                        if current_time - self.last_giant_tab >= self.giant_tab_cooldown:
-                            # Search for "Giant" in all OCR text
-                            for text in ocr_data['text']:
-                                if text.strip() and 'giant' in text.lower():
-                                    # Giant detected! Press TAB
-                                    self.giant_tab_count += 1
-                                    self.last_giant_tab = current_time
-                                    self.root.after(0, lambda: self.giant_tab_label.config(
-                                        text=f"🔥 Giant TABs: {self.giant_tab_count}"))
-                                    
-                                    keyboard.press_and_release('tab')
-                                    self.log(f"🔥 GIANT DETECTED! Auto TAB pressed (#{self.giant_tab_count})")
-                                    break  # Only press once per scan
+                    # Detect monster using template matching
+                    monster_name, confidence, template_x, template_y = self.detect_monster_template(screenshot)
+                    
+                    if monster_name and confidence >= self.template_threshold:
+                        # Monster found!
+                        self.total_kills += 1
+                        self.root.after(0, lambda: self.kills_label.config(
+                            text=f"Mobs Killed: {self.total_kills}"))
                         
-                    # Search for monster names in OCR results
-                    found_monster = False
-                    for i, text in enumerate(ocr_data['text']):
-                        if not text.strip():
-                            continue
+                        # Calculate click position (center of template in screen coordinates)
+                        template = self.monster_templates[monster_name]
+                        template_h, template_w = template.shape[:2]
+                        center_x = x + template_x + template_w // 2
+                        center_y = y + template_y + template_h // 2
                         
-                        text_lower = text.lower()
-                            
-                        # Check if any monster name matches
-                        for monster_name in monster_names:
-                            # Flexible matching: check if monster name is in the text or vice versa
-                            if monster_name in text_lower or text_lower in monster_name:
-                                # Also check similarity for partial matches
-                                if len(text_lower) >= 3 and (monster_name in text_lower or 
-                                                              text_lower in monster_name or
-                                                              self.text_similarity(monster_name, text_lower) > 0.6):
-                                    found_monster = True
-                                    
-                                    # Get bounding box coordinates
-                                    box_x = ocr_data['left'][i]
-                                    box_y = ocr_data['top'][i]
-                                    box_w = ocr_data['width'][i]
-                                    box_h = ocr_data['height'][i]
-                                    
-                                    # Calculate center in screen coordinates
-                                    center_x = x + box_x + box_w // 2
-                                    center_y = y + box_y + box_h // 2
-                                    
-                                    self.total_kills += 1
-                                    self.root.after(0, lambda: self.kills_label.config(
-                                        text=f"Mobs Killed: {self.total_kills}"))
-                                    
-                                    self.log(f"🎯 [OCR] Found '{text}' (matched: {monster_name}) at ({center_x}, {center_y})")
-                                    
-                                    # Power bar check
-                                    if self.power_bar_enabled:
-                                        self.check_power_bar(monster_name)
-                                    
-                                    # Mouse movement and click
-                                    offset_x = center_x + random.randint(-5, 5)
-                                    offset_y = center_y + random.randint(-5, 5)
-                                    pyautogui.moveTo(offset_x, offset_y, duration=0.08)
-                                    pydirectinput.click()
-                                    time.sleep(0.1)
-                                    
-                                    # Press skills
-                                    skill_log = "   Skills: "
-                                    for skill in self.skills:
-                                        self.press_key(skill)
-                                        skill_log += f"{skill} "
-                                        time.sleep(self.skill_delay)
-                                    
-                                    self.log(skill_log + "✓")
-                                    time.sleep(self.mob_delay)
-                                    break
+                        self.log(f"🎯 [TEMPLATE] {monster_name} detected (confidence: {confidence:.2f}) at ({center_x}, {center_y})")
                         
-                        if found_monster:
-                            break
-                    
-                    if not found_monster:
-                        # No monsters found, wait a bit
-                        time.sleep(0.5)
-                
-                except Exception as e:
-                    error_msg = str(e)
-                    if "tesseract" in error_msg.lower():
-                        self.log(f"⚠️ OCR Error: Tesseract not installed!")
-                        self.log(f"   Run 'install_tesseract.bat' to install Tesseract OCR")
-                        self.log(f"   Or download from: https://github.com/UB-Mannheim/tesseract/wiki")
+                        # Click on the monster
+                        offset_x = center_x + random.randint(-5, 5)
+                        offset_y = center_y + random.randint(-5, 5)
+                        pyautogui.moveTo(offset_x, offset_y, duration=0.08)
+                        pydirectinput.click()
+                        time.sleep(0.1)
+                        
+                        # Execute skills
+                        skill_log = "   Skills: "
+                        for skill in self.skills:
+                            self.press_key(skill)
+                            skill_log += f"{skill} "
+                            time.sleep(self.skill_delay)
+                        
+                        self.log(skill_log + "✓")
+                        time.sleep(self.mob_delay)
                     else:
-                        self.log(f"⚠️ OCR Error: {error_msg}")
-                    time.sleep(3)
-                
+                        # No monster found, wait a bit
+                        time.sleep(0.3)
+                    
+                    continue
+
             except Exception as e:
                 self.log(f"⚠️ Error: {e}")
                 time.sleep(1)

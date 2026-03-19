@@ -1,372 +1,301 @@
 # Silkroad Vision Bot 🎮
 
-**Advanced Python bot for Silkroad Online with computer vision detection, power bar automation, modern GUI, and anti-ban features.**
+**Silkroad Online için Şablon Tabanlı (Template Matching) Canavar Tespit Sistemi ile Yazılmış Otomatik Bot**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)]()
 
-[English](#english) | [Türkçe](#turkish)
+---
+
+## 🎯 Temel Özellikler
+
+- **⌨️ Tuş Vuruşu Modu** (Varsayılan)
+  - Canavar seçimi olmaksızın sadece belirtilen tuşları basma
+  - Hızlı, güvenli ve ayarlama gerekmez
+  
+- **📸 Şablon Tabanlı Canavar Tespiti**
+  - `monsters/` klasöründeki PNG dosyalarla canavarlara karşı gözlem yapma
+  - OpenCV `cv2.matchTemplate` kullanarak görüntü eşleştirme
+  - Ayarlanabilir hassasiyet (Threshold) seçeneği
+  - **Tesseract OCR gerekmez!**
+
+- **🖱️ Esnek İnput Yöntemi Seçimi**
+  - Auto (Otomatik - önerilen)
+  - SendInput (Hardware-level scan codes)
+  - PyDirectInput (Alternatif girdi)
+  - Keyboard Library (Fallback seçeneği)
+
+- **⚙️ Kişiselleştirilebilir Ayarlar**
+  - Tuş aralığı (0.1 - 1.0 saniye)
+  - Canavar arası bekleme (0.1 - 2.0 saniye)
+  - Şablon hassasiyet eşiği (0.1 - 0.9)
+  - Özel tuş kombinasyonları
+
+- **📊 Canlı İstatistikler**
+  - Öldürülen canavar sayacı
+  - Çalışma süresi
+  - Gerçek zamanlı log çıktısı
+
+### 📋 Sistem Gereksinimleri
+
+- **Windows 10/11**
+- **Python 3.8 veya daha yüksek**
+- **Oyun pencereli modda çalışıyor** (tam ekran değil)
 
 ---
 
-## <a name="english"></a>🇬🇧 English
+## 🚀 Kurulum
 
-### ✨ Features
-
-- 🔍 **Two Hunt Modes**:
-  - **Image Detection**: Traditional monster image recognition (requires screenshots)
-  - **Region Mode (OCR)**: Define a hunt area and type monster names - bot uses OCR to read text on screen and attacks matching monsters (NO SCREENSHOTS NEEDED!)
-- ⚡ **Power Bar Automation**: Detects when your power bar is full and automatically presses TAB
-- 🖥️ **Modern GUI**: User-friendly interface with real-time statistics and logs
-- ⚙️ **Highly Customizable**: 
-  - Detection confidence slider
-  - Skill interval adjustment
-  - Mob interval adjustment
-  - Custom skill key mapping
-- 🎯 **Smart Targeting**: Attacks closest monsters first to minimize movement
-- ⛔ **Static Mode**: Option to disable mouse movement (only attack with skills)
-- 📊 **Live Statistics**: Track kills, power usage, and running time
-- 🚀 **Maximum Speed**: Optimized for fast farming
-- 🛡️ **Anti-Ban Features**: Randomized timings and human-like behavior
-
-### 📋 Requirements
-
-- Windows 10/11
-- Python 3.8 or higher
-- Game running in windowed mode (recommended)
-
-### 🚀 Installation
-
-1. **Clone the repository**
+### 1. Projeyi İndir
 ```bash
 git clone https://github.com/yourusername/silkroad-vision-bot.git
 cd silkroad-vision-bot
 ```
 
-2. **Install dependencies**
+### 2. Python Bağımlılıklarını Yükle
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Install Tesseract OCR** (Required for Region Mode)
-   - **Option 1 - Automatic (Windows)**: Double-click `install_tesseract.bat`
-   - **Option 2 - Manual**: Download and install from [Tesseract GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
-   - Make sure to use the default installation path: `C:\Program Files\Tesseract-OCR`
-   - **After installation**: Restart your terminal/command prompt
-
-4. **Prepare monster images** (Only for Image Detection mode)
-   - Take screenshots of monster names or bodies
-   - Save them as PNG files in the `monsters/` folder
-   - Examples: `shakram.png`, `edimmu.png`
-   - **Note**: Not needed if using Region Mode with OCR!
-
-5. **(Optional) Prepare power bar image**
-   - Take a screenshot of your **FULL** power bar
-   - Save it as `bar_full.png` in the `power_bar/` folder
-
-### 🎮 Usage
-
-#### Using GUI (Recommended)
+Veya manuel:
 ```bash
-# Run normally
+pip install pyautogui pydirectinput keyboard pillow opencv-python numpy
+```
+
+### 3. Monster Şablonlarını Hazırla ⭐ ÖNEMLİ
+
+**Şablon Tabanlı Canavar Tespiti için:**
+
+1. **Oyunda bir canavara yaklaş**
+2. **Windows + Shift + S** ile ekran parçası al
+3. **Canavarın adının veya gövdesinin göründüğü kısmı** seç
+4. **Paint veya benzeri programda** PNG olarak kaydet
+5. **`monsters/` klasörüne** kopyala
+
+**Dosya adlandırma örnekleri:**
+```
+monsters/
+├── bighwhitespider.png
+├── earthghostsoldier.png
+├── shakram.png
+└── edimmu.png
+```
+
+**İpucu:** Canavar ismini net görünen ekran parçasını seç. Çok parlak veya çok koyu yerlerden screenshot alma.
+
+---
+
+## 🎮 Kullanım
+
+### GUI ile Başlat (Önerilen)
+```bash
 python bot_gui.py
-
-# Or double-click
-run_gui.bat
-
-# Run as Administrator (for better compatibility)
-Right-click run_gui.bat → Run as Administrator
 ```
 
-#### Using Command-Line
+Veya Windows'da:
+- `run_gui.bat` dosyasına çift tıkla
+- Veya Yönetici olarak çalıştır: `run_gui.bat` → Sağ tıkla → Yönetici olarak çalıştır
+
+---
+
+## ⚙️ Ayarlar ve Konfigürasyon
+
+### 1. **Tuş Vuruşu Modu** ✓ Varsayılan AÇIK
+
+```
+☑ Sadece Tuş Vuruşu Modu (Canavar seçimi kapalı)
+```
+
+- **Etkinleştirildiğinde:** Bot sadece tuşları basacak, canavar araması yapmayacak
+- **Devre dışı:** Şablon tabanlı canavar tespiti aktifleşir → PNG template'lerle avlanır
+
+### 2. **Tuş Kombinasyonları**
+
+```
+Skill Keys: 1,2,3,4
+```
+
+Botun basacağı tuşları virgülü kullanarak belirt:
+- Örnek: `q,w,e,r`
+- Örnek: `1,2,3,4,5`
+
+### 3. **Tuş Aralığı**
+
+```
+Skill Interval: 0.15 saniye
+```
+
+- Her tuş basışı arasında bekle
+- Düşük değer = Hızlı hücum
+- Yüksek değer = Tuş arası daha uzun
+
+### 4. **Canavar Arası Bekleme**
+
+```
+Mob Interval: 0.2 saniye
+```
+
+- Canavar öldürüldükten sonra ilerlemeden önce bekle
+- Düşük = Hızlı av, Yüksek = Daha kontrollü
+
+### 5. **Input Yöntemi** (Tuş Gönderme)
+
+```
+Input Method: Auto (Recommended)
+```
+
+**Seçenekler:**
+- **Auto:** Sistem otomatik uygun yöntemi seçer
+- **SendInput:** Windows API doğrudan hardware tuş basması (En güvenilir)
+- **PyDirectInput:** Alternatif kütüphane
+- **Keyboard:** Fallback seçeneği
+
+### 6. **Hunt Region** (Canavar Tespiti Alanı)
+
+```
+"📍 Set Hunt Region (Template Detection)" butonuna tıkla
+```
+
+Adımlar:
+1. Buton düğmesine tıkla
+2. Açılan pencerede "OK"ye basınca ekran gri olur
+3. **Farenle** oyun içinde canavarlara baktığın bölgeyi seç (tıklayıp sürükle)
+4. Fare düğmesini bırak - bölge kaydedilir
+
+### 7. **Şablon Hassasiyet Eşiği** (Template Threshold)
+
+```
+Template Threshold: 0.40
+```
+
+- **Düşük değer (0.1):** Çok hassas - her benzer şeyi tespit eder
+- **Yüksek değer (0.9):** Çok katı - sadece tam eşleşmeleri tespit eder
+- **Önerilen:** 0.35 - 0.50
+
+**Debug İpucu:** Log penceresinde "Confidence = X.XX" görürsen match başarılı demektir. Görmüyorsan threshold'u düşür.
+
+---
+
+## 📸 Şablon Tabanlı Canavar Tespiti Nasıl Çalışır?
+
+### Hazırlık Aşaması
+1. `monsters/` klasörüne canavar PNG'lerini koy
+2. Bot başlatıldığında otomatik yüklenir → Log'ta "Template yüklendi" mesajı görürsün
+
+### Çalışma Aşaması
+1. Bot, Hunt Region'dan screenshot alır
+2. Her template'i ekranda arar (OpenCV `cv2.matchTemplate`)
+3. Hassasiyet eşiğinden yukarı match bulursa:
+   - Bulduğu konuma tıkla
+   - Skill tuşlarını bas
+   - Sonraki canavar ara
+
+### Debug Tekniği
+- Log penceresinde titreşim görüyorsan → Threshold çok düşük
+- Hiç log görmüyorsan → Threshold çok yüksek
+- Ore "Confidence = 0.45" → İyi işaret!
+
+---
+
+## ⌨️ Tuşlar
+
+- **Q:** Botu durdur (oyun penceresinde)
+- **START/STOP:** GUI'dan kontrol et
+
+---
+
+## 🚨 Sorun Giderme
+
+### Bot canavarlara tıklamıyor
+**Kontrol listesi:**
+1. Tuş Vuruşu Modu kapalı mı? (Kapalı olması gerekir template tespiti için)
+2. `monsters/` klasöründe PNG dosyaları var mı?
+3. Hunt Region doğru mu seçildi?
+4. Template Threshold çok yüksek mi? → Düşür (örn: 0.40 → 0.30)
+5. Bot log'larında "NE template loaded" mi yazıyor? Eğer öyle, template bulunamıyor demektir
+
+### Tuşlar oyunda gitmeyip
+**Deneme sırası:**
+1. Yönetici olarak çalıştır: `run_gui.bat` → Sağ tıkla → Yönetici olarak çalıştır
+2. Input Yöntemi değiştir: GUI'da "SendInput"ı seç (Tuş Vuruşu Modu aktifse)
+3. Oyunu pencereli moda al: Tam ekran değil, pencereli
+4. Oyun penceresine odaklan: Botu çalıştırmadan önce oyun açık ve seçili olsun
+
+### GUI açılmıyor
 ```bash
-python bot.py
+python bot_gui.py
 ```
 
-### 📐 Configuration
+Hata alırsan:
+```bash
+pip install --upgrade tkinter
+```
 
-**In the GUI, you can adjust:**
+---
 
-1. **Detection Confidence** (0.5 - 0.95)
-   - Lower = Faster but less accurate
-   - Higher = More precise but may miss targets
-   - Recommended: 0.75 - 0.80
-
-2. **Hunt Mode**
-   - **📸 Image Detection**: Uses monster screenshots (requires images in monsters/ folder)
-   - **🎯 Region Mode (OCR)**: Uses OCR to read monster names on screen - NO IMAGES NEEDED!
-     - Click "Set Hunt Region" button
-     - Click OK on the dialog
-     - **Draw a rectangle with your mouse** on your game screen (click and drag)
-     - Release mouse button to confirm
-     - **Enter monster names** in the "Monster Names" field (comma separated, e.g., "strong earth ghost, edimmu, giant")
-     - Bot will use Tesseract OCR to read text within the region and attack matching monsters
-     - No need for screenshots! Just type the monster names and go!
-     - Flexible matching - partial names work too (e.g., "earth ghost" matches "Strong Earth Ghost Soldier")
-
-3. **Skill Interval** (0.1 - 1.0 seconds)
-   - Time between skill presses
-   - Lower = Faster combat
-   - Adjust based on skill cooldowns
-
-4. **Mob Interval** (0.1 - 2.0 seconds)
-   - Wait time after killing a mob
-   - Lower = Faster farming
-
-5. **Skill Keys**
-   - Default: 1,2,3,4
-   - Can be changed to any keys (e.g., q,w,e,r)
-
-6. **Static Mode**
-   - When enabled, bot won't move mouse
-   - Only attacks with skills
-
-7. **Power Bar Detection**
-   - Automatically presses TAB when power bar is full
-   - Check interval: 5-30 seconds (default: 17)
-   - **Two modes available:**
-     - **Filtered mode**: Use power bar only for specific mobs (e.g., "giant", "champion")
-     - **Always mode**: Use power bar for all mobs whenever it's full
-
-### 🖼️ Screenshot Guide
-
-**For Image Detection Mode:**
-1. Stand near a monster
-2. Press `Windows + Shift + S`
-3. Select only the **monster's name** or its body
-4. Paste in Paint and save to `monsters/` folder
-
-**For Power Bar:**
-1. Wait for power bar to be **completely full**
-2. Press `Windows + Shift + S`
-3. Select only the **full bar** (small area)
-4. Save as `power_bar/bar_full.png`
-
-### ⌨️ Hotkeys
-
-- **Q**: Stop the bot
-- **Start/Stop buttons**: Control bot from GUI
-
-### 🛠️ Troubleshooting
-
-**Bot doesn't find monsters:**
-- Lower the detection confidence
-- Make sure screenshots are clear and in PNG format
-- Check that game zoom level matches screenshot zoom
-
-**Skills not working:**
-- Run as Administrator
-- Make sure game is in windowed mode
-- Check that skill keys match your game settings
-
-**Mouse not moving:**
-- Make sure Static Mode is disabled
-- Run as Administrator
-
-### 📝 File Structure
+## 📁 Dosya Yapısı
 
 ```
 silkroad-vision-bot/
 │
-├── bot_gui.py          # GUI version (recommended)
-├── bot.py              # Command-line version
-├── requirements.txt    # Python dependencies
-├── run_gui.bat        # Windows launcher for GUI
-├── install.bat        # Dependency installer
+├── bot_gui.py              # Ana GUI programı
+├── bot.py                  # Komut satırı versiyonu
+├── requirements.txt        # Python bağımlılıkları
+├── run_gui.bat            # Windows GUI başlatıcı
+├── README.md              # Bu dosya
 │
-├── monsters/          # Monster screenshots folder
-│   ├── shakram.png
-│   └── edimmu.png
+├── monsters/              # Canavar template'leri (PNG dosyaları)
+│   ├── bighwhitespider.png
+│   ├── earthghostsoldier.png
+│   └── .gitkeep
 │
-└── power_bar/         # Power bar screenshots folder
-    └── bar_full.png
+└── power_bar/             # (Eski sürümlerde kullanılıyordu)
 ```
-
-### ⚠️ Disclaimer
-
-This bot is for **educational purposes only**. Use at your own risk. The author is not responsible for any bans or consequences resulting from using this software. Always check your game's Terms of Service before using automation tools.
-
-### 📜 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-### 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 
-## <a name="turkish"></a>🇹🇷 Türkçe
+## 💡 Kullanım İpuçları
 
-### ✨ Özellikler
+### Hızlı Başlangıç
+1. **Tuş Vuruşu Modu**'nde başla (varsayılan):
+   - Python'u çalıştır, ayar yapma gerek yok
+   - Oyunda manuel tıkla, bot tuşları basacak
 
-- 🔍 **İki Avlanma Modu**:
-  - **Görüntü Tespiti**: Geleneksel mob resim tanıma (ekran görüntüsü gerektirir)
-  - **Bölge Modu (OCR)**: Bir avlanma alanı belirle ve canavar isimlerini yaz - bot OCR ile ekrandaki yazıları okur (EKRAN GÖRÜNTÜSÜ GEREKMEZ!)
-- ⚡ **Güç Barı Otomasyonu**: Bar dolduğunda otomatik TAB tuşuna basma
-- 🖥️ **Modern Arayüz**: Kullanıcı dostu arayüz, canlı istatistikler ve loglar
-- ⚙️ **Tamamen Özelleştirilebilir**: 
-  - Tespit hassasiyeti ayarı
-  - Skill aralığı ayarı
-  - Mob aralığı ayarı
-  - Özel skill tuş ataması
-- 🎯 **Akıllı Hedefleme**: En yakın moblara saldırarak hareketi minimize eder
-- ⛔ **Sabit Mod**: Fare hareketini kapatma seçeneği (sadece skill ile saldırı)
-- 📊 **Canlı İstatistikler**: Öldürülen mob, güç kullanımı ve çalışma süresi takibi
-- 🚀 **Maksimum Hız**: Hızlı farm için optimize edildi
-- 🛡️ **Anti-Ban Özellikleri**: Rastgele zamanlamalar ve insansı davranış
+2. **Canavar Tespiti kurmak için:**
+   - `monsters/` klasörüne 2-3 PNG at
+   - Tuş Vuruşu Modu'nu KAP (unchecked)
+   - Hunt Region'u seç
+   - Başlat
 
-### 📋 Gereksinimler
+### Template Seçimi
+- Canavar adını net görebileceğin kısım seç
+- Zifiri karanlık veya aşırı aydınlık yerlerde screenshot alma
+- Zoom seviyesini değiştirirsen, yeni template'ler al
 
-- Windows 10/11
-- Python 3.8 veya üzeri
-- Oyunun pencere modunda çalışması (önerilen)
-
-### 🚀 Kurulum
-
-1. **Projeyi indirin**
-```bash
-git clone https://github.com/yourusername/silkroad-vision-bot.git
-cd silkroad-vision-bot
-```
-
-2. **Bağımlılıkları yükleyin**
-```bash
-pip install -r requirements.txt
-```
-
-3. **Tesseract OCR'ı kurun** (Bölge Modu için gerekli)
-   - **Seçenek 1 - Otomatik (Windows)**: `install_tesseract.bat` dosyasına çift tıklayın
-   - **Seçenek 2 - Manuel**: [Tesseract GitHub](https://github.com/UB-Mannheim/tesseract/wiki) adresinden indirip kurun
-   - Varsayılan kurulum yolunu kullanın: `C:\Program Files\Tesseract-OCR`
-   - **Kurulumdan sonra**: Terminal/komut istemini yeniden başlatın
-
-4. **Mob resimlerini hazırlayın** (Sadece Görüntü Tespiti modu için)
-   - Mob isimlerinin veya gövdelerinin ekran görüntüsünü alın
-   - `monsters/` klasörüne PNG olarak kaydedin
-   - Örnek: `shakram.png`, `edimmu.png`
-   - **Not**: Bölge Modu ile OCR kullanıyorsanız gerekli değil!
-
-5. **(Opsiyonel) Güç barı resmini hazırlayın**
-   - **DOLU** güç barının ekran görüntüsünü alın
-   - `power_bar/` klasörüne `bar_full.png` olarak kaydedin
-
-### 🎮 Kullanım
-
-#### Arayüz ile (Önerilen)
-```bash
-# Normal çalıştırma
-python bot_gui.py
-
-# Veya çift tıklayın
-run_gui.bat
-
-# Yönetici olarak çalıştırma (daha iyi uyumluluk için)
-run_gui.bat → Sağ tık → Yönetici olarak çalıştır
-```
-
-#### Komut Satırı ile
-```bash
-python bot.py
-```
-
-### 📐 Yapılandırma
-
-**Arayüzde ayarlayabilirsiniz:**
-
-1. **Tespit Hassasiyeti** (0.5 - 0.95)
-   - Düşük = Hızlı ama daha az doğru
-   - Yüksek = Daha kesin ama hedefi kaçırabilir
-   - Önerilen: 0.75 - 0.80
-
-2. **Avlanma Modu**
-   - **📸 Görüntü Tespiti**: Mob ekran görüntüleri kullanır (monsters/ klasöründe resim gerekir)
-   - **🎯 Bölge Modu (OCR)**: OCR ile ekrandaki yazıları okur - RESİM GEREKMEZ!
-     - "Set Hunt Region" butonuna tıkla
-     - Açılan pencerede OK'e bas
-     - **Oyun ekranında fareyle dikdörtgen çiz** (tıklayıp sürükle)
-     - Fare butonunu bırakarak onayla
-     - **Canavar isimlerini gir** "Monster Names" alanına (virgülle ayrılmış, örn: "strong earth ghost, edimmu")
-     - Bot Tesseract OCR ile bölge içindeki yazıları okuyup eşleşen canavarları saldırır
-     - Ekran görüntüsü almaya gerek yok! Sadece ismi yaz ve başlat!
-     - Esnek eşleştirme - kısmi isimler de çalışır (örn: "earth ghost" → "Strong Earth Ghost Soldier")
-
-3. **Skill Aralığı** (0.1 - 1.0 saniye)
-   - Skill basışları arası süre
-   - Düşük = Daha hızlı dövüş
-   - Skill cooldown'larınıza göre ayarlayın
-
-4. **Mob Aralığı** (0.1 - 2.0 saniye)
-   - Mob öldürme sonrası bekleme
-   - Düşük = Daha hızlı farm
-
-5. **Skill Tuşları**
-   - Varsayılan: 1,2,3,4
-   - İstediğiniz tuşlara değiştirilebilir (örn: q,w,e,r)
-
-6. **Sabit Mod**
-   - Aktif olduğunda fare hareket etmez
-   - Sadece skill ile saldırır
-
-7. **Güç Barı Tespiti**
-   - Bar dolduğunda otomatik TAB basar
-   - Kontrol aralığı: 5-30 saniye (varsayılan: 17)
-   - **İki mod mevcut:**
-     - **Filtreli mod**: Güç barını sadece belirli moblar için kullan (örn: "giant", "champion")
-     - **Her zaman modu**: Güç barını tüm moblar için dolu olduğunda kullan
-
-### 🖼️ Ekran Görüntüsü Rehberi
-
-**Mob Tespiti için:**
-1. Bir mobun yanına gidin
-2. `Windows + Shift + S` tuşlarına basın
-3. Sadece **mob ismini** veya gövdesini seçin
-4. Paint'e yapıştırıp `monsters/` klasörüne kaydedin
-
-**Güç Barı için:**
-1. Güç barının **tamamen dolmasını** bekleyin
-2. `Windows + Shift + S` tuşlarına basın
-3. Sadece **dolu barı** seçin (küçük alan)
-4. `power_bar/bar_full.png` olarak kaydedin
-
-### ⌨️ Kısayol Tuşları
-
-- **Q**: Botu durdur
-- **Başlat/Durdur butonları**: Arayüzden bot kontrolü
-
-### 🛠️ Sorun Giderme
-
-**Bot mob bulamiyor:**
-- Tespit hassasiyetini düşürün
-- Ekran görüntülerinin net ve PNG formatında olduğundan emin olun
-- Oyun zoom seviyesinin ekran görüntüsüyle aynı olduğunu kontrol edin
-
-**Skiller çalışmıyor:**
-- Yönetici olarak çalıştırın
-- Oyunun pencere modunda olduğundan emin olun
-- Skill tuşlarının oyun ayarlarınızla eşleştiğini kontrol edin
-
-**Fare hareket etmiyor:**
-- Sabit Mod'un kapalı olduğundan emin olun
-- Yönetici olarak çalıştırın
-
-### ⚠️ Uyarı
-
-Bu bot **sadece eğitim amaçlıdır**. Kullanım riski size aittir. Yazılımı kullanmanın sonucunda oluşan banlar veya sonuçlardan yazar sorumlu değildir. Otomasyon araçlarını kullanmadan önce her zaman oyununuzun Hizmet Koşullarını kontrol edin.
-
-### 📜 Lisans
-
-Bu proje MIT Lisansı altında lisanslanmıştır - detaylar için [LICENSE](LICENSE) dosyasına bakın.
-
-### 🤝 Katkıda Bulunma
-
-Katkılar memnuniyetle karşılanır! Lütfen Pull Request göndermekten çekinmeyin.
+### Performans Optimizasyonu
+- Template threshold'unu log'u okuyarak ayarla:
+  - "Confidence = 0.X" görüyorsan, iyiydir
+  - Görmüyorsan → Threshold'u 0.05 düşür ve yeniden dene
 
 ---
 
-### 💖 Support
+## ⚠️ Sorumluluk Reddi
 
-If you find this project useful, please give it a ⭐️!
+Bu bot eğitim amaçlı yazılmıştır. Kullanımın riski size aittir.
 
-For issues or questions, please open an issue on GitHub.
+**Uyarılar:**
+- Bot hesabının yasaklanmasından yazılım yazarı sorumlu değildir
+- Oyun kurallarına uyduğunuzdan emin olun
+- Uzun süreli kullanımda hesabınızı riske atabilirsiniz
+- Oyunun Terms of Service'ini okuduğunuzdan emin olun
+
+---
+
+## 📜 Lisans
+
+MIT Lisansı altında açık kaynaklı. Detaylar için [LICENSE](LICENSE) dosyasına bakın.
+
+---
+
+**Başarılı avlar! 🎯**
