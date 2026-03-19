@@ -353,6 +353,35 @@ class BotGUI:
         self.template_threshold_label.grid(row=6, column=2)
         ttk.Label(settings_frame, text=tr("threshold_hint"), font=("Arial", 8), foreground="gray").grid(row=6, column=0, columnspan=3, sticky=tk.E, pady=0)
 
+        # Buff system settings
+        ttk.Separator(settings_frame, orient='horizontal').grid(row=7, column=0, columnspan=3, sticky='ew', pady=10)
+        
+        # Buff Keys
+        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=8, column=0, sticky=tk.W, pady=5)
+        self.buff_keys_entry = ttk.Entry(settings_frame, width=15)
+        self.buff_keys_entry.insert(0, "F2")
+        self.buff_keys_entry.grid(row=8, column=1, padx=5, sticky=tk.W)
+        ttk.Label(settings_frame, text="(keys for buffs)").grid(row=8, column=2, sticky=tk.W)
+
+        # Buff Interval (30 minutes = 1800 seconds)
+        ttk.Label(settings_frame, text="⏱️ Buff Interval (dakika):").grid(row=9, column=0, sticky=tk.W, pady=5)
+        self.buff_interval_var = tk.DoubleVar(value=30)
+        buff_interval_slider = ttk.Scale(settings_frame, from_=5, to=120, variable=self.buff_interval_var,
+                                        orient=tk.HORIZONTAL, length=200, command=self.update_buff_interval)
+        buff_interval_slider.grid(row=9, column=1, padx=5)
+        self.buff_interval_label = ttk.Label(settings_frame, text="30 dk")
+        self.buff_interval_label.grid(row=9, column=2)
+
+        # Buff enabled checkbox
+        self.buff_enabled_var = tk.BooleanVar(value=True)
+        buff_enabled_check = ttk.Checkbutton(
+            settings_frame,
+            text="⚡ Buff Sistemini Aktif Et",
+            variable=self.buff_enabled_var,
+            command=self.toggle_buff_system
+        )
+        buff_enabled_check.grid(row=10, column=0, columnspan=3, sticky=tk.W, pady=5)
+
         # Buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=3, column=0, columnspan=2, pady=15)
@@ -413,6 +442,21 @@ class BotGUI:
         else:
             self.log("🎯 Template Av Modu: ON")
             self.log("   Monsters klasöründeki template'lerden canavar seçimi yapılacak")
+    
+    def update_buff_interval(self, value):
+        """Update buff interval in minutes and convert to seconds."""
+        minutes = float(value)
+        self.buff_interval = minutes * 60  # Convert to seconds
+        self.buff_interval_label.config(text=f"{minutes:.0f} dk")
+    
+    def toggle_buff_system(self):
+        """Enable/disable buff system."""
+        self.buff_enabled = self.buff_enabled_var.get()
+        if self.buff_enabled:
+            self.log("⚡ Buff Sistemi: AÇIK")
+            self.log(f"   Buff tuşları her {self.buff_interval/60:.0f} dakikada basılacak")
+        else:
+            self.log("⚡ Buff Sistemi: KAPALI")
     
     def set_hunt_region(self):
         """Let user select a hunt region by drawing on screen."""
@@ -538,6 +582,12 @@ class BotGUI:
         if not self.skills:
             self.log(tr("error_empty_skills"))
             return
+        
+        # Get buff keys
+        buff_keys_text = self.buff_keys_entry.get().strip()
+        self.buff_keys = [s.strip() for s in buff_keys_text.split(',') if s.strip()]
+        self.buff_enabled = self.buff_enabled_var.get()
+        self.last_buff_time = time.time()  # Reset buff timer on start
         
         if not self.keypress_only_mode:
             # Check hunt region
@@ -827,6 +877,17 @@ class BotGUI:
             if keyboard.is_pressed('q'):
                 self.root.after(0, self.stop_bot)
                 break
+            
+            # Check if buff should be activated (every buff_interval seconds)
+            if self.buff_enabled:
+                current_time = time.time()
+                if current_time - self.last_buff_time >= self.buff_interval:
+                    self.log(f"⚡ BUFF TIME! Basılan tuşlar: {', '.join(self.buff_keys)}")
+                    for buff_key in self.buff_keys:
+                        self.press_key(buff_key)
+                        time.sleep(0.3)  # Small delay between buff keys
+                    self.last_buff_time = current_time
+                    time.sleep(1)  # Extra delay after buffs
                 
             try:
                 if self.keypress_only_mode:
