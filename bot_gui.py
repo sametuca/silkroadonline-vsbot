@@ -25,6 +25,7 @@ LANGUAGES = {
         "mob_interval": "Canavar Arası Bekleme:",
         "skill_keys": "Skill Tuşları:",
         "target_monsters": "Aranacak Canavarlar:",
+        "auto_tab_interval": "Auto TAB Aralığı:",
         "input_method": "Input Yöntemi:",
         "keypress_only": "☑ Sadece Tuş Vuruşu Modu",
         "set_hunt_region": "📍 Hunt Region Seç (Template Tespiti)",
@@ -61,6 +62,7 @@ LANGUAGES = {
         "mob_interval": "Mob Interval:",
         "skill_keys": "Skill Keys:",
         "target_monsters": "Target Monsters:",
+        "auto_tab_interval": "Auto TAB Interval:",
         "input_method": "Input Method:",
         "keypress_only": "☑ Keypress Only Mode",
         "set_hunt_region": "📍 Set Hunt Region (Template Detection)",
@@ -408,24 +410,40 @@ class BotGUI:
         ttk.Label(settings_frame, text=tr("threshold_hint"), style='Info.TLabel').grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(0, 5))
 
         # ============ BUFF SYSTEM ============
+        ttk.Label(settings_frame, text=tr("auto_tab_interval")).grid(row=8, column=0, sticky=tk.W, pady=6)
+        self.auto_tab_interval_var = tk.DoubleVar(value=15)
+        auto_tab_slider = ttk.Scale(
+            settings_frame,
+            from_=5,
+            to=60,
+            variable=self.auto_tab_interval_var,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self.update_auto_tab_interval
+        )
+        auto_tab_slider.grid(row=8, column=1, padx=8, sticky='ew')
+        self.auto_tab_interval_label = ttk.Label(settings_frame, text="15 sn", width=8)
+        self.auto_tab_interval_label.grid(row=8, column=2, padx=5)
+
+        # ============ BUFF SYSTEM ============
         sep2 = ttk.Separator(settings_frame, orient='horizontal')
-        sep2.grid(row=8, column=0, columnspan=3, sticky='ew', pady=10)
+        sep2.grid(row=9, column=0, columnspan=3, sticky='ew', pady=10)
         
         # Buff Keys
-        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=9, column=0, sticky=tk.W, pady=6)
+        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=10, column=0, sticky=tk.W, pady=6)
         self.buff_keys_entry = ttk.Entry(settings_frame, width=15)
         self.buff_keys_entry.insert(0, "F2")
-        self.buff_keys_entry.grid(row=9, column=1, padx=8, sticky=tk.W)
-        ttk.Label(settings_frame, text="(keys for buffs)", style='Info.TLabel').grid(row=9, column=2, sticky=tk.W, padx=5)
+        self.buff_keys_entry.grid(row=10, column=1, padx=8, sticky=tk.W)
+        ttk.Label(settings_frame, text="(keys for buffs)", style='Info.TLabel').grid(row=10, column=2, sticky=tk.W, padx=5)
 
         # Buff Interval
-        ttk.Label(settings_frame, text="⏱️ Buff Interval (min):").grid(row=10, column=0, sticky=tk.W, pady=6)
+        ttk.Label(settings_frame, text="⏱️ Buff Interval (min):").grid(row=11, column=0, sticky=tk.W, pady=6)
         self.buff_interval_var = tk.DoubleVar(value=30)
         buff_interval_slider = ttk.Scale(settings_frame, from_=5, to=120, variable=self.buff_interval_var,
                                         orient=tk.HORIZONTAL, length=200, command=self.update_buff_interval)
-        buff_interval_slider.grid(row=10, column=1, padx=8, sticky='ew')
+        buff_interval_slider.grid(row=11, column=1, padx=8, sticky='ew')
         self.buff_interval_label = ttk.Label(settings_frame, text="30 min", width=8)
-        self.buff_interval_label.grid(row=10, column=2, padx=5)
+        self.buff_interval_label.grid(row=11, column=2, padx=5)
 
         # Buff enabled checkbox
         self.buff_enabled_var = tk.BooleanVar(value=True)
@@ -435,7 +453,7 @@ class BotGUI:
             variable=self.buff_enabled_var,
             command=self.toggle_buff_system
         )
-        buff_enabled_check.grid(row=11, column=0, columnspan=3, sticky=tk.W, pady=8)
+        buff_enabled_check.grid(row=12, column=0, columnspan=3, sticky=tk.W, pady=8)
 
         # Configure grid weight for better layout
         settings_frame.columnconfigure(1, weight=1)
@@ -507,6 +525,12 @@ class BotGUI:
         minutes = float(value)
         self.buff_interval = minutes * 60  # Convert to seconds
         self.buff_interval_label.config(text=f"{minutes:.0f} dk")
+
+    def update_auto_tab_interval(self, value):
+        """Update auto TAB interval in seconds."""
+        seconds = float(value)
+        self.auto_tab_interval = seconds
+        self.auto_tab_interval_label.config(text=f"{seconds:.0f} sn")
     
     def toggle_buff_system(self):
         """Enable/disable buff system."""
