@@ -24,6 +24,7 @@ LANGUAGES = {
         "skill_interval": "Skill Aralığı:",
         "mob_interval": "Canavar Arası Bekleme:",
         "skill_keys": "Skill Tuşları:",
+        "target_monsters": "Aranacak Canavarlar:",
         "input_method": "Input Yöntemi:",
         "keypress_only": "☑ Sadece Tuş Vuruşu Modu",
         "set_hunt_region": "📍 Hunt Region Seç (Template Tespiti)",
@@ -59,6 +60,7 @@ LANGUAGES = {
         "skill_interval": "Skill Interval:",
         "mob_interval": "Mob Interval:",
         "skill_keys": "Skill Keys:",
+        "target_monsters": "Target Monsters:",
         "input_method": "Input Method:",
         "keypress_only": "☑ Keypress Only Mode",
         "set_hunt_region": "📍 Set Hunt Region (Template Detection)",
@@ -187,14 +189,19 @@ class BotGUI:
         self.skill_delay = 0.15
         self.mob_delay = 0.2
         self.skills = ['1', '2', '3', '4']
-        self.keypress_only_mode = True  # Run only key presses without monster detection
+        self.keypress_only_mode = False  # Start in template detection mode by default
         self.input_method = "auto"  # auto, sendinput, pydirectinput, keyboard
+        self.active_template_filter = set()  # Normalized target template names
         
         # Buff system
         self.buff_keys = ['F2']  # Default: F2 for buffs
         self.buff_interval = 1800  # 30 minutes in seconds (1800 seconds)
         self.last_buff_time = 0  # Track last buff activation time
         self.buff_enabled = True  # Enable/disable buff system
+
+        # Auto TAB system
+        self.auto_tab_interval = 15  # seconds
+        self.last_auto_tab_time = 0
         
         # Hunt region for OCR-based detection
         self.hunt_region = None  # Hunt region (x, y, width, height)
@@ -238,96 +245,143 @@ class BotGUI:
         self.root.wait_window(dialog)
         
     def setup_ui(self):
+        # Configure ttk style for modern look
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Define color scheme (Modern Dark Blue Theme)
+        bg_color = "#f0f2f5"
+        fg_color = "#1a1a1a"
+        accent_color = "#1e90ff"  # Dodger Blue
+        hover_color = "#4169e1"
+        border_color = "#e0e0e0"
+        
+        # Configure style
+        style.configure('TFrame', background=bg_color)
+        style.configure('TLabel', background=bg_color, foreground=fg_color)
+        style.configure('TLabelframe', background=bg_color, foreground=fg_color, borderwidth=2)
+        style.configure('TLabelframe.Label', background=bg_color, foreground=accent_color, font=("Segoe UI", 10, "bold"))
+        style.configure('TButton', font=("Segoe UI", 9), padding=5)
+        style.map('TButton',
+                  background=[('active', hover_color)])
+        style.configure('Title.TLabel', font=("Segoe UI", 24, "bold"), foreground=accent_color)
+        style.configure('Subtitle.TLabel', font=("Segoe UI", 11, "bold"), foreground=accent_color)
+        style.configure('Info.TLabel', font=("Segoe UI", 8), foreground="#666666")
+        
         # Create canvas and scrollbar for scrollable content
-        canvas = tk.Canvas(self.root)
-        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        main_bg = tk.Canvas(self.root, bg=bg_color, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=main_bg.yview)
+        scrollable_frame = ttk.Frame(main_bg)
         
         scrollable_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: main_bg.configure(scrollregion=main_bg.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        main_bg.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        main_bg.configure(yscrollcommand=scrollbar.set)
         
         # Pack canvas and scrollbar
-        canvas.pack(side="left", fill="both", expand=True)
+        main_bg.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
         # Enable mousewheel scrolling
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            main_bg.yview_scroll(int(-1*(event.delta/120)), "units")
+        main_bg.bind_all("<MouseWheel>", _on_mousewheel)
         
-        # Main frame (now inside scrollable_frame)
-        main_frame = ttk.Frame(scrollable_frame, padding="10")
+        # Main frame
+        main_frame = ttk.Frame(scrollable_frame, padding="15")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Title
-        title_label = ttk.Label(main_frame, text="🎮 SILKROAD VISION BOT", font=("Arial", 20, "bold"))
-        title_label.grid(row=0, column=0, columnspan=2, pady=10)
+        # ============ HEADER ============
+        header_frame = ttk.Frame(main_frame)
+        header_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 15))
         
-        # Status panel
-        status_frame = ttk.LabelFrame(main_frame, text="📊 Status", padding="10")
-        status_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        title_label = ttk.Label(header_frame, text="🎮 SILKROAD VISION BOT", style='Title.TLabel')
+        title_label.pack(pady=5)
         
-        self.status_label = ttk.Label(status_frame, text="⭕ " + tr("stopped"), font=("Arial", 12, "bold"), foreground="red")
-        self.status_label.grid(row=0, column=0, pady=5)
+        subtitle_label = ttk.Label(header_frame, text="Auto Hunter & Buff Manager", style='Subtitle.TLabel')
+        subtitle_label.pack()
         
-        self.kills_label = ttk.Label(status_frame, text="Mobs Killed: 0", font=("Arial", 10))
-        self.kills_label.grid(row=1, column=0, pady=2)
+        sep1 = ttk.Separator(header_frame, orient='horizontal')
+        sep1.pack(fill='x', pady=10)
         
-        self.time_label = ttk.Label(status_frame, text="Running Time: 00:00:00", font=("Arial", 10))
-        self.time_label.grid(row=2, column=0, pady=2)
+        # GitHub info
+        github_frame = ttk.Frame(header_frame)
+        github_frame.pack(pady=5)
+        ttk.Label(github_frame, text="👨‍💻 Developed by: Samet UCA", style='Info.TLabel').pack()
+        ttk.Label(github_frame, text="📍 GitHub: github.com/SametUCA", style='Info.TLabel', foreground=accent_color).pack()
         
-        # Settings panel
-        settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Settings", padding="10")
-        settings_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        # ============ STATUS PANEL ============
+        status_frame = ttk.LabelFrame(main_frame, text="📊 Status", padding="12")
+        status_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        
+        self.status_label = ttk.Label(status_frame, text="⭕ " + tr("stopped"), font=("Segoe UI", 12, "bold"), foreground="red")
+        self.status_label.pack(pady=8)
+        
+        stats_frame = ttk.Frame(status_frame)
+        stats_frame.pack(fill='x', pady=5)
+        
+        self.kills_label = ttk.Label(stats_frame, text="Mobs Killed: 0", font=("Segoe UI", 10))
+        self.kills_label.pack(side='left', padx=10)
+        
+        self.time_label = ttk.Label(stats_frame, text="Running Time: 00:00:00", font=("Segoe UI", 10))
+        self.time_label.pack(side='right', padx=10)
+        
+        # ============ SETTINGS PANEL ============
+        settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Settings", padding="12")
+        settings_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
         
         # Skill delay setting
-        ttk.Label(settings_frame, text=tr("skill_interval")).grid(row=0, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("skill_interval")).grid(row=0, column=0, sticky=tk.W, pady=6)
         self.skill_delay_var = tk.DoubleVar(value=0.15)
         skill_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=1.0, variable=self.skill_delay_var,
                                       orient=tk.HORIZONTAL, length=200, command=self.update_skill_delay)
-        skill_delay_slider.grid(row=0, column=1, padx=5)
-        self.skill_delay_label = ttk.Label(settings_frame, text="0.15")
-        self.skill_delay_label.grid(row=0, column=2)
+        skill_delay_slider.grid(row=0, column=1, padx=8, sticky='ew')
+        self.skill_delay_label = ttk.Label(settings_frame, text="0.15 s", width=8)
+        self.skill_delay_label.grid(row=0, column=2, padx=5)
         
         # Mob delay setting
-        ttk.Label(settings_frame, text=tr("mob_interval")).grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("mob_interval")).grid(row=1, column=0, sticky=tk.W, pady=6)
         self.mob_delay_var = tk.DoubleVar(value=0.2)
         mob_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=2.0, variable=self.mob_delay_var,
                                     orient=tk.HORIZONTAL, length=200, command=self.update_mob_delay)
-        mob_delay_slider.grid(row=1, column=1, padx=5)
-        self.mob_delay_label = ttk.Label(settings_frame, text="0.20")
-        self.mob_delay_label.grid(row=1, column=2)
+        mob_delay_slider.grid(row=1, column=1, padx=8, sticky='ew')
+        self.mob_delay_label = ttk.Label(settings_frame, text="0.20 s", width=8)
+        self.mob_delay_label.grid(row=1, column=2, padx=5)
         
         # Skill keys
-        ttk.Label(settings_frame, text=tr("skill_keys")).grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("skill_keys")).grid(row=2, column=0, sticky=tk.W, pady=6)
         self.skills_entry = ttk.Entry(settings_frame, width=15)
         self.skills_entry.insert(0, "1,2,3,4")
-        self.skills_entry.grid(row=2, column=1, padx=5, sticky=tk.W)
-        ttk.Label(settings_frame, text="(comma separated)").grid(row=2, column=2, sticky=tk.W)
+        self.skills_entry.grid(row=2, column=1, padx=8, sticky=tk.W)
+        ttk.Label(settings_frame, text="(comma separated)", style='Info.TLabel').grid(row=2, column=2, sticky=tk.W, padx=5)
+
+        # Target monsters (optional)
+        ttk.Label(settings_frame, text=tr("target_monsters")).grid(row=3, column=0, sticky=tk.W, pady=6)
+        self.target_monsters_entry = ttk.Entry(settings_frame, width=28)
+        self.target_monsters_entry.grid(row=3, column=1, padx=8, sticky='ew')
+        ttk.Label(settings_frame, text="(optional: name1,name2)", style='Info.TLabel').grid(row=3, column=2, sticky=tk.W, padx=5)
 
         # Keypress-only mode
-        self.keypress_only_var = tk.BooleanVar(value=True)
+        self.keypress_only_var = tk.BooleanVar(value=False)
         keypress_only_check = ttk.Checkbutton(
             settings_frame,
             text=tr("keypress_only"),
             variable=self.keypress_only_var,
             command=self.toggle_keypress_only_mode
         )
-        keypress_only_check.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=8)
+        keypress_only_check.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=8)
 
         # Input method selection
-        ttk.Label(settings_frame, text=tr("input_method")).grid(row=4, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("input_method")).grid(row=5, column=0, sticky=tk.W, pady=6)
         self.input_method_var = tk.StringVar(value="Auto (Recommended)")
         self.input_method_combo = ttk.Combobox(
             settings_frame,
             textvariable=self.input_method_var,
             state="readonly",
-            width=28,
+            width=30,
             values=[
                 "Auto (Recommended)",
                 "SendInput (Scan Code)",
@@ -335,42 +389,43 @@ class BotGUI:
                 "Keyboard Library"
             ]
         )
-        self.input_method_combo.grid(row=4, column=1, columnspan=2, sticky=tk.W, padx=5)
+        self.input_method_combo.grid(row=5, column=1, columnspan=2, sticky='ew', padx=8)
         self.input_method_combo.bind("<<ComboboxSelected>>", self.update_input_method)
         
-        # Set Hunt Region button
-        self.set_hunt_region_button = ttk.Button(settings_frame, text=tr("set_hunt_region"), 
+        # Hunt Region button
+        self.set_hunt_region_button = ttk.Button(settings_frame, text="📍 " + tr("set_hunt_region"), 
                                                  command=self.set_hunt_region)
-        self.set_hunt_region_button.grid(row=5, column=0, columnspan=3, pady=10)
+        self.set_hunt_region_button.grid(row=6, column=0, columnspan=3, pady=10, sticky='ew', padx=8)
         
-        # Template threshold (for template matching mode)
-        ttk.Label(settings_frame, text=tr("template_threshold")).grid(row=6, column=0, sticky=tk.W, pady=5)
+        # Template threshold
+        ttk.Label(settings_frame, text=tr("template_threshold")).grid(row=7, column=0, sticky=tk.W, pady=6)
         self.template_threshold_var = tk.DoubleVar(value=0.4)
         template_threshold_slider = ttk.Scale(settings_frame, from_=0.1, to=0.9, variable=self.template_threshold_var,
                                             orient=tk.HORIZONTAL, length=200, command=self.update_template_threshold)
-        template_threshold_slider.grid(row=6, column=1, padx=5)
-        self.template_threshold_label = ttk.Label(settings_frame, text="0.40")
-        self.template_threshold_label.grid(row=6, column=2)
-        ttk.Label(settings_frame, text=tr("threshold_hint"), font=("Arial", 8), foreground="gray").grid(row=6, column=0, columnspan=3, sticky=tk.E, pady=0)
+        template_threshold_slider.grid(row=7, column=1, padx=8, sticky='ew')
+        self.template_threshold_label = ttk.Label(settings_frame, text="0.40", width=8)
+        self.template_threshold_label.grid(row=7, column=2, padx=5)
+        ttk.Label(settings_frame, text=tr("threshold_hint"), style='Info.TLabel').grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(0, 5))
 
-        # Buff system settings
-        ttk.Separator(settings_frame, orient='horizontal').grid(row=7, column=0, columnspan=3, sticky='ew', pady=10)
+        # ============ BUFF SYSTEM ============
+        sep2 = ttk.Separator(settings_frame, orient='horizontal')
+        sep2.grid(row=8, column=0, columnspan=3, sticky='ew', pady=10)
         
         # Buff Keys
-        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=8, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=9, column=0, sticky=tk.W, pady=6)
         self.buff_keys_entry = ttk.Entry(settings_frame, width=15)
         self.buff_keys_entry.insert(0, "F2")
-        self.buff_keys_entry.grid(row=8, column=1, padx=5, sticky=tk.W)
-        ttk.Label(settings_frame, text="(keys for buffs)").grid(row=8, column=2, sticky=tk.W)
+        self.buff_keys_entry.grid(row=9, column=1, padx=8, sticky=tk.W)
+        ttk.Label(settings_frame, text="(keys for buffs)", style='Info.TLabel').grid(row=9, column=2, sticky=tk.W, padx=5)
 
-        # Buff Interval (30 minutes = 1800 seconds)
-        ttk.Label(settings_frame, text="⏱️ Buff Interval (dakika):").grid(row=9, column=0, sticky=tk.W, pady=5)
+        # Buff Interval
+        ttk.Label(settings_frame, text="⏱️ Buff Interval (min):").grid(row=10, column=0, sticky=tk.W, pady=6)
         self.buff_interval_var = tk.DoubleVar(value=30)
         buff_interval_slider = ttk.Scale(settings_frame, from_=5, to=120, variable=self.buff_interval_var,
                                         orient=tk.HORIZONTAL, length=200, command=self.update_buff_interval)
-        buff_interval_slider.grid(row=9, column=1, padx=5)
-        self.buff_interval_label = ttk.Label(settings_frame, text="30 dk")
-        self.buff_interval_label.grid(row=9, column=2)
+        buff_interval_slider.grid(row=10, column=1, padx=8, sticky='ew')
+        self.buff_interval_label = ttk.Label(settings_frame, text="30 min", width=8)
+        self.buff_interval_label.grid(row=10, column=2, padx=5)
 
         # Buff enabled checkbox
         self.buff_enabled_var = tk.BooleanVar(value=True)
@@ -380,31 +435,35 @@ class BotGUI:
             variable=self.buff_enabled_var,
             command=self.toggle_buff_system
         )
-        buff_enabled_check.grid(row=10, column=0, columnspan=3, sticky=tk.W, pady=5)
+        buff_enabled_check.grid(row=11, column=0, columnspan=3, sticky=tk.W, pady=8)
 
-        # Buttons
+        # Configure grid weight for better layout
+        settings_frame.columnconfigure(1, weight=1)
+
+        # ============ BUTTONS ============
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=3, column=0, columnspan=2, pady=15)
         
-        self.start_button = ttk.Button(button_frame, text=tr("start"), command=self.start_bot, width=15)
-        self.start_button.grid(row=0, column=0, padx=5)
+        self.start_button = ttk.Button(button_frame, text="▶️  START", command=self.start_bot, width=20)
+        self.start_button.pack(side='left', padx=8)
         
-        self.stop_button = ttk.Button(button_frame, text=tr("stop"), command=self.stop_bot, 
-                                     width=15, state=tk.DISABLED)
-        self.stop_button.grid(row=0, column=1, padx=5)
+        self.stop_button = ttk.Button(button_frame, text="⏹️  STOP", command=self.stop_bot, 
+                                     width=20, state=tk.DISABLED)
+        self.stop_button.pack(side='left', padx=8)
         
-        # Log panel
-        log_frame = ttk.LabelFrame(main_frame, text=tr("log"), padding="5")
-        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        # ============ LOG PANEL ============
+        log_frame = ttk.LabelFrame(main_frame, text="📝 Log", padding="10")
+        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=15, width=70, 
-                                                  font=("Consolas", 9), state=tk.DISABLED)
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=12, width=70, 
+                                                  font=("Consolas", 9), bg="#1e1e1e", fg="#00ff00")
         self.log_text.pack(fill=tk.BOTH, expand=True)
         
-        # Info
-        info_label = ttk.Label(main_frame, text=tr("press_q"), 
-                              font=("Arial", 8), foreground="gray")
-        info_label.grid(row=5, column=0, columnspan=2, pady=5)
+        # ============ FOOTER ============
+        footer_frame = ttk.Frame(main_frame)
+        footer_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Label(footer_frame, text="Press 'Q' to stop | © 2026 Samet UCA", 
+                  style='Info.TLabel').pack()
         
     def update_skill_delay(self, value):
         self.skill_delay = float(value)
@@ -564,6 +623,7 @@ class BotGUI:
         
         ttk.Button(dialog, text=tr("ok_start"), command=start_selection).pack(pady=15)
         ttk.Button(dialog, text=tr("cancel"), command=lambda: [dialog.destroy(), self.log(tr("selection_cancelled"))]).pack()
+
             
     
     def log(self, message):
@@ -588,6 +648,7 @@ class BotGUI:
         self.buff_keys = [s.strip() for s in buff_keys_text.split(',') if s.strip()]
         self.buff_enabled = self.buff_enabled_var.get()
         self.last_buff_time = time.time()  # Reset buff timer on start
+        self.last_auto_tab_time = time.time()
         
         if not self.keypress_only_mode:
             # Check hunt region
@@ -601,6 +662,34 @@ class BotGUI:
                 self.log(tr("error_no_templates"))
                 self.log(tr("error_add_png"))
                 return
+
+            # Optional target-monster filtering
+            targets_text = self.target_monsters_entry.get().strip()
+            requested_names = [name.strip() for name in targets_text.split(',') if name.strip()]
+            self.active_template_filter = set()
+
+            if requested_names:
+                available_templates = {
+                    self.normalize_monster_name(name): name
+                    for name in self.monster_templates.keys()
+                }
+                missing_names = []
+
+                for requested_name in requested_names:
+                    normalized_requested = self.normalize_monster_name(requested_name)
+                    if normalized_requested in available_templates:
+                        self.active_template_filter.add(normalized_requested)
+                    else:
+                        missing_names.append(requested_name)
+
+                if missing_names:
+                    self.log(f"⚠️ Template bulunamadı: {', '.join(missing_names)}")
+
+                if not self.active_template_filter:
+                    self.log("❌ Aranacak canavar isimleri eşleşmedi! monsters/ dosya adlarını kontrol et.")
+                    return
+            else:
+                self.active_template_filter = set()
         
         self.bot_running = True
         self.total_kills = 0
@@ -624,12 +713,21 @@ class BotGUI:
             self.log(f"📊 Templates loaded: {len(self.monster_templates)}")
             for monster in self.monster_templates.keys():
                 self.log(f"   ▶ {monster}")
+            if self.active_template_filter:
+                filtered_names = [
+                    name for name in self.monster_templates.keys()
+                    if self.normalize_monster_name(name) in self.active_template_filter
+                ]
+                self.log(f"🎯 Target monsters: {', '.join(filtered_names)}")
+            else:
+                self.log("🎯 Target monsters: ALL")
         
         self.log(f"🎯 Skill keys: {', '.join(self.skills)}")
         self.log(f"⌨️ Input method: {self.input_method_var.get()}")
         self.log(f"⚙️ Skill interval: {self.skill_delay}s")
         self.log(f"⚙️ Mob interval: {self.mob_delay}s")
         self.log(f"🎨 Template threshold: {self.template_threshold:.2f}")
+        self.log(f"⚔️ Auto TAB interval: {self.auto_tab_interval:.0f}s")
         self.log("=" * 60)
         
         # Start bot thread
@@ -687,6 +785,12 @@ class BotGUI:
         distance = previous_row[-1]
         max_len = max(len(s1), len(s2))
         return 1.0 - (distance / max_len)
+
+    def normalize_monster_name(self, name):
+        """Normalize monster/template names for robust matching."""
+        if not name:
+            return ""
+        return ''.join(ch.lower() for ch in name if ch.isalnum())
         
     def load_monster_templates(self):
         """Load monster template images from monsters/ folder."""
@@ -718,7 +822,7 @@ class BotGUI:
         except Exception as e:
             self.log(f"❌ Monster templates yüklenirken hata: {e}")
     
-    def detect_monster_template(self, screenshot):
+    def detect_monster_template(self, screenshot, target_filter=None):
         """
         Detect monster in screenshot using template matching.
         Returns (monster_name, confidence, x, y) or (None, 0, 0, 0)
@@ -738,6 +842,11 @@ class BotGUI:
             # Try each template
             for monster_name, template in self.monster_templates.items():
                 try:
+                    if target_filter:
+                        normalized_name = self.normalize_monster_name(monster_name)
+                        if normalized_name not in target_filter:
+                            continue
+
                     gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
                     
                     # Check template is not bigger than image
@@ -877,6 +986,14 @@ class BotGUI:
             if keyboard.is_pressed('q'):
                 self.root.after(0, self.stop_bot)
                 break
+
+            # Press TAB every fixed interval
+            current_time = time.time()
+            if current_time - self.last_auto_tab_time >= self.auto_tab_interval:
+                self.press_key('tab')
+                self.last_auto_tab_time = current_time
+                self.log("⚔️ Auto TAB pressed")
+                time.sleep(0.1)
             
             # Check if buff should be activated (every buff_interval seconds)
             if self.buff_enabled:
@@ -912,7 +1029,10 @@ class BotGUI:
                     screenshot = pyautogui.screenshot(region=(x, y, w, h))
                     
                     # Detect monster using template matching
-                    monster_name, confidence, template_x, template_y = self.detect_monster_template(screenshot)
+                    monster_name, confidence, template_x, template_y = self.detect_monster_template(
+                        screenshot,
+                        self.active_template_filter
+                    )
                     
                     if monster_name and confidence >= self.template_threshold:
                         # Monster found!

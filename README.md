@@ -10,7 +10,7 @@
 
 ## 🎯 Temel Özellikler
 
-- **⌨️ Tuş Vuruşu Modu** (Varsayılan)
+- **⌨️ Tuş Vuruşu Modu** (Opsiyonel)
   - Canavar seçimi olmaksızın sadece belirtilen tuşları basma
   - Hızlı, güvenli ve ayarlama gerekmez
   
@@ -174,7 +174,7 @@ Veya Windows'da:
 
 ## ⚙️ Ayarlar ve Konfigürasyon
 
-### 1. **Tuş Vuruşu Modu** ✓ Varsayılan AÇIK
+### 1. **Tuş Vuruşu Modu** ✓ Varsayılan KAPALI
 
 ```
 ☑ Sadece Tuş Vuruşu Modu (Canavar seçimi kapalı)
@@ -182,6 +182,16 @@ Veya Windows'da:
 
 - **Etkinleştirildiğinde:** Bot sadece tuşları basacak, canavar araması yapmayacak
 - **Devre dışı:** Şablon tabanlı canavar tespiti aktifleşir → PNG template'lerle avlanır
+
+### Aranacak Canavarlar (Opsiyonel)
+
+```
+Aranacak Canavarlar: shakram,edimmu
+```
+
+- Virgülle birden fazla isim yazabilirsin (ör. 2 isim).
+- Boş bırakırsan `monsters/` klasöründeki tüm template'lerde arar.
+- Eşleşme, `monsters/` dosya adı üzerinden yapılır (uzantısız ad).
 
 ### 2. **Tuş Kombinasyonları**
 
@@ -331,13 +341,14 @@ silkroad-vision-bot/
 ## 💡 Kullanım İpuçları
 
 ### Hızlı Başlangıç
-1. **Tuş Vuruşu Modu**'nde başla (varsayılan):
-   - Python'u çalıştır, ayar yapma gerek yok
-   - Oyunda manuel tıkla, bot tuşları basacak
+1. Varsayılan template modunda başla:
+  - `monsters/` klasörüne 2-3 PNG ekle
+  - Hunt Region'u seç
+  - Gerekirse Aranacak Canavarlar alanına 1 veya daha fazla isim yaz
 
 2. **Canavar Tespiti kurmak için:**
-   - `monsters/` klasörüne 2-3 PNG at
-   - Tuş Vuruşu Modu'nu KAP (unchecked)
+  - `monsters/` klasörüne 2-3 PNG at
+  - Tuş Vuruşu Modu kapalı kalsın (varsayılan)
    - Hunt Region'u seç
    - Başlat
 
