@@ -69,24 +69,97 @@ pip install pyautogui pydirectinput keyboard pillow opencv-python numpy
 
 1. **Oyunda bir canavara yaklaş**
 2. **Windows + Shift + S** ile ekran parçası al
-3. **Canavarın adının veya gövdesinin göründüğü kısmı** seç
-4. **Paint veya benzeri programda** PNG olarak kaydet
+3. **Canavarın adının veya gövdesinin göründüğü kısmı** seç (ismini net görebileceğin kısım)
+4. **Paint veya benzeri programda kaydederken** PNG format seç
 5. **`monsters/` klasörüne** kopyala
 
-**Dosya adlandırma örnekleri:**
+**Örnek: Big White Spider Template**
+
+Şablonunuz şöyle görünmelidir:
+
+```
+📋 Template Örneği (Big White Spider):
+┌──────────────────────────────┐
+│  Big White Spider            │  ← Net görünen isim
+│  [Canavar gövdesi görseli]   │  ← İsim ve gövde
+└──────────────────────────────┘
+```
+
+> **📝 Not:** Attachment'ta gönderilen "Big White Spider" fotoğrafını aşağıda kaydedin:
+> 
+> 📁 `docs/bighwhitespider_example.png`
+>
+> Bu dosya README örneği için referanstır. Kendi template'lerinizi `monsters/` klasörüne koyun!
+
+**Dosya Adlandırma Örnekleri:**
 ```
 monsters/
 ├── bighwhitespider.png
 ├── earthghostsoldier.png
 ├── shakram.png
-└── edimmu.png
+├── edimmu.png
+└── (daha fazla monster PNG'si...)
 ```
 
-**İpucu:** Canavar ismini net görünen ekran parçasını seç. Çok parlak veya çok koyu yerlerden screenshot alma.
+**📌 Önemli İpuçları:**
+
+| İpucu | Açıklama |
+|-------|----------|
+| **NET RESİM SEÇ** | Canavar ismini veya gövdesini net görebileceğin bölümü seç |
+| **KOŞULLU ORTAM** | Çok karanlık veya aşırı parlak yerlerden kaliteli screenshot al |
+| **ZOOM SEVİYESİ TUTKALI** | Oyundaki zoom seviyesini değiştirirsen, yeni template al |
+| **PNG FORMAT ŞART** | Başka formatlar (.jpg, .bmp) kullanma, sadece PNG |
+| **TEKRAR TEST ET** | Template ekledikten sonra bot başlatıp test et, confidence score'u kontrol et |
 
 ---
 
-## 🎮 Kullanım
+## 📸 Şablon Tabanlı Canavar Tespiti Nasıl Çalışır?
+
+### Hazırlık Aşaması
+1. `monsters/` klasörüne canavar PNG'lerini koy
+2. Bot başlatıldığında otomatik yüklenir → Log'ta "Template yüklendi" mesajı görürsün
+
+### Çalışma Aşaması
+1. Bot, Hunt Region'dan screenshot alır
+2. Her template'i ekranda arar (OpenCV `cv2.matchTemplate`)
+3. Hassasiyet eşiğinden yukarı match bulursa:
+   - Bulduğu konuma tıkla
+   - Skill tuşlarını bas
+   - Sonraki canavar ara
+
+### Debug Tekniği
+- Log penceresinde "Confidence = 0.XX" görüyorsan → İyi işaret! ✅
+- Titreşim (çok sık tetikleme) görüyorsan → Threshold çok düşük (artır)
+- Hiç match görmüyorsan → Threshold çok yüksek (azalt)
+
+**Örnek Log Çıktıları:**
+```
+✅ Hunt region set: X=640, Y=200, W=400, H=300
+🎯 Template Av Modu: ON
+📸 Template 'bighwhitespider' yüklendi
+Confidence = 0.65 ← İyi match!
+Confidence = 0.42 ← Kabul edilir
+Confidence = 0.38 ← Sadece threshold 0.35 ise algılanır
+```
+
+---
+
+### 🌐 Dil Seçimi
+
+**İlk Açılışta:**
+- Uygulama açıldığında dil seçim penceresi gösterilir
+- 🇹🇷 **Türkçe** veya 🇬🇧 **English** seçin
+- Seçim `language.json` dosyasında kaydediliyor
+- Sonraki açılışlarda otomatik seçilen dilde açılır
+
+**Dili Değiştirmek İçin:**
+```bash
+# language.json dosyasını sil
+del language.json
+
+# Sonra programı yeniden çalıştır
+python bot_gui.py
+```
 
 ### GUI ile Başlat (Önerilen)
 ```bash

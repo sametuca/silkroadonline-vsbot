@@ -3,5 +3,4 @@ pydirectinput
 keyboard
 opencv-python
 numpy
-pytesseract
 pillow

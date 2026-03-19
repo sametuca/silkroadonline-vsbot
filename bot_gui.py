@@ -105,32 +105,8 @@ def get_language():
         except:
             return 'EN'
     else:
-        # Show language selection on first launch
-        root_temp = tk.Tk()
-        root_temp.withdraw()
-        result = [None]
-        
-        def select_lang(lang):
-            result[0] = lang
-            lang_window.destroy()
-            root_temp.destroy()
-        
-        lang_window = tk.Toplevel(root_temp)
-        lang_window.title("Language Selection / Dil Seçimi")
-        lang_window.geometry("300x150")
-        lang_window.transient(root_temp)
-        
-        ttk.Label(lang_window, text="Select Language / Dil Seç", font=("Arial", 12, "bold")).pack(pady=10)
-        
-        ttk.Button(lang_window, text="🇹🇷 Türkçe", command=lambda: select_lang('TR'), width=20).pack(pady=5)
-        ttk.Button(lang_window, text="🇬🇧 English", command=lambda: select_lang('EN'), width=20).pack(pady=5)
-        
-        lang_window.wait_window()
-        root_temp.destroy()
-        
-        lang = result[0] or 'EN'
-        save_language(lang)
-        return lang
+        # Default to EN if dialog fails
+        return 'EN'
 
 def save_language(lang):
     """Save selected language."""
@@ -191,6 +167,15 @@ class INPUT(ctypes.Structure):
 class BotGUI:
     def __init__(self, root):
         self.root = root
+        
+        # Show language selection on first launch
+        if not os.path.exists(LANG_FILE):
+            self.show_language_selection()
+        
+        # Now update language
+        global CURRENT_LANGUAGE
+        CURRENT_LANGUAGE = get_language()
+        
         self.root.title(tr("title"))
         self.root.geometry("650x900")
         self.root.resizable(True, True)
@@ -204,6 +189,12 @@ class BotGUI:
         self.skills = ['1', '2', '3', '4']
         self.keypress_only_mode = True  # Run only key presses without monster detection
         self.input_method = "auto"  # auto, sendinput, pydirectinput, keyboard
+        
+        # Buff system
+        self.buff_keys = ['F2']  # Default: F2 for buffs
+        self.buff_interval = 1800  # 30 minutes in seconds (1800 seconds)
+        self.last_buff_time = 0  # Track last buff activation time
+        self.buff_enabled = True  # Enable/disable buff system
         
         # Hunt region for OCR-based detection
         self.hunt_region = None  # Hunt region (x, y, width, height)
@@ -224,6 +215,27 @@ class BotGUI:
         self.start_time = None
         
         self.setup_ui()
+    
+    def show_language_selection(self):
+        """Show language selection dialog on first launch."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Language Selection / Dil Seçimi")
+        dialog.geometry("350x180")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="Select Language / Dil Seç", font=("Arial", 12, "bold")).pack(pady=15)
+        
+        def select_lang(lang):
+            save_language(lang)
+            global CURRENT_LANGUAGE
+            CURRENT_LANGUAGE = lang
+            dialog.destroy()
+        
+        ttk.Button(dialog, text="🇹🇷 Türkçe", command=lambda: select_lang('TR'), width=25).pack(pady=5)
+        ttk.Button(dialog, text="🇬🇧 English", command=lambda: select_lang('EN'), width=25).pack(pady=5)
+        
+        self.root.wait_window(dialog)
         
     def setup_ui(self):
         # Create canvas and scrollbar for scrollable content

@@ -1,0 +1,11 @@
+# Bu klasör example şablonları içindir
+# Lütfen attachment'taki "Big White Spider" fotoğrafını buraya kaydedin:
+# Dosya adı: bighwhitespider_example.png
+
+# Kaydedilecek adımlar:
+# 1. Attachment'taki Big White Spider görüntüsünü sağ tıkla
+# 2. "Farklı kaydet" seç
+# 3. Dosya adını "bighwhitespider_example.png" olarak gir
+# 4. Bu klasöre (docs/) kaydet
+
+# Sonra README.md'deki markdown görseli gösterilecek!
