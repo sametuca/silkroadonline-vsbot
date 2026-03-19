@@ -5,6 +5,7 @@ import pyautogui
 import pydirectinput
 import time
 import os
+import json
 import random
 import keyboard
 import ctypes
@@ -15,6 +16,135 @@ import numpy as np
 
 # Optimize pydirectinput pause for games
 pydirectinput.PAUSE = 0
+
+# LANGUAGE SUPPORT
+LANGUAGES = {
+    "TR": {
+        "title": "Silkroad Vision Bot | Otomatik Av",
+        "skill_interval": "Skill Aralığı:",
+        "mob_interval": "Canavar Arası Bekleme:",
+        "skill_keys": "Skill Tuşları:",
+        "input_method": "Input Yöntemi:",
+        "keypress_only": "☑ Sadece Tuş Vuruşu Modu",
+        "set_hunt_region": "📍 Hunt Region Seç (Template Tespiti)",
+        "template_threshold": "Template Hassasiyet Eşiği:",
+        "threshold_hint": "(düşük=hassas, yüksek=katı)",
+        "start": "▶️ BAŞLAT",
+        "stop": "⏹️ DUR",
+        "log": "📝 Log",
+        "press_q": "Botu durdurmak için 'Q' tuşuna basın",
+        "draw_region": "🎯 Hunt Region Çiz",
+        "draw_instructions": "Talimatlar:",
+        "draw_step1": "1. Aşağıdaki OK butonuna tıkla",
+        "draw_step2": "2. Oyun ekranında farenle bir dikdörtgen çiz",
+        "draw_step3": "3. Fare düğmesini bırakarak seçimi onayla",
+        "draw_step4": "4. Çizdiğin alan hunt region olacak",
+        "ok_start": "OK - Seçimi Başlat",
+        "cancel": "İptal",
+        "hunt_region_set": "✅ Hunt region ayarlandı: X={}, Y={}, W={}, H={}",
+        "click_points": "   {} adet tıklama noktası oluşturuldu",
+        "region_small": "❌ Bölge çok küçük! Daha büyük bir alan seç.",
+        "selection_cancelled": "❌ Seçim iptal edildi.",
+        "error_empty_skills": "❌ HATA: Skill tuşları boş olamaz!",
+        "error_hunt_not_set": "❌ HATA: Hunt region ayarlanmamış!",
+        "error_click_button": "   Önce 'Hunt Region Seç' butonuna tıkla",
+        "error_no_templates": "❌ HATA: Canavar template'i yüklenmedi!",
+        "error_add_png": "   monsters/ klasörüne PNG dosyaları ekle",
+        "running": "✅ ÇALIŞIYOR",
+        "stopped": "⏹️ DURDURULDU",
+        "line_separator": "=" * 50,
+    },
+    "EN": {
+        "title": "Silkroad Vision Bot | Auto Hunter",
+        "skill_interval": "Skill Interval:",
+        "mob_interval": "Mob Interval:",
+        "skill_keys": "Skill Keys:",
+        "input_method": "Input Method:",
+        "keypress_only": "☑ Keypress Only Mode",
+        "set_hunt_region": "📍 Set Hunt Region (Template Detection)",
+        "template_threshold": "Template Threshold:",
+        "threshold_hint": "(low=sensitive, high=strict)",
+        "start": "▶️ START",
+        "stop": "⏹️ STOP",
+        "log": "📝 Log",
+        "press_q": "Press 'Q' to stop the bot",
+        "draw_region": "🎯 Draw Hunt Region",
+        "draw_instructions": "Instructions:",
+        "draw_step1": "1. Click OK button below",
+        "draw_step2": "2. Click and drag on your game screen to draw a rectangle",
+        "draw_step3": "3. Release mouse button to confirm selection",
+        "draw_step4": "4. The area you draw will be the hunt region",
+        "ok_start": "OK - Start Selection",
+        "cancel": "Cancel",
+        "hunt_region_set": "✅ Hunt region set: X={}, Y={}, W={}, H={}",
+        "click_points": "   Generated {} click points in the region",
+        "region_small": "❌ Region too small! Please select a larger area.",
+        "selection_cancelled": "❌ Selection cancelled.",
+        "error_empty_skills": "❌ ERROR: Skill keys cannot be empty!",
+        "error_hunt_not_set": "❌ ERROR: Hunt region not set!",
+        "error_click_button": "   Click 'Set Hunt Region' button first",
+        "error_no_templates": "❌ ERROR: No monster templates loaded!",
+        "error_add_png": "   Add PNG files to monsters/ folder",
+        "running": "✅ RUNNING",
+        "stopped": "⏹️ STOPPED",
+        "line_separator": "=" * 50,
+    }
+}
+
+# Load/Set language
+import json
+LANG_FILE = "language.json"
+
+def get_language():
+    """Get saved language or show selection dialog."""
+    if os.path.exists(LANG_FILE):
+        try:
+            with open(LANG_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('language', 'EN')
+        except:
+            return 'EN'
+    else:
+        # Show language selection on first launch
+        root_temp = tk.Tk()
+        root_temp.withdraw()
+        result = [None]
+        
+        def select_lang(lang):
+            result[0] = lang
+            lang_window.destroy()
+            root_temp.destroy()
+        
+        lang_window = tk.Toplevel(root_temp)
+        lang_window.title("Language Selection / Dil Seçimi")
+        lang_window.geometry("300x150")
+        lang_window.transient(root_temp)
+        
+        ttk.Label(lang_window, text="Select Language / Dil Seç", font=("Arial", 12, "bold")).pack(pady=10)
+        
+        ttk.Button(lang_window, text="🇹🇷 Türkçe", command=lambda: select_lang('TR'), width=20).pack(pady=5)
+        ttk.Button(lang_window, text="🇬🇧 English", command=lambda: select_lang('EN'), width=20).pack(pady=5)
+        
+        lang_window.wait_window()
+        root_temp.destroy()
+        
+        lang = result[0] or 'EN'
+        save_language(lang)
+        return lang
+
+def save_language(lang):
+    """Save selected language."""
+    try:
+        with open(LANG_FILE, 'w') as f:
+            json.dump({'language': lang}, f)
+    except:
+        pass
+
+CURRENT_LANGUAGE = get_language()
+
+def tr(key):
+    """Get translated string."""
+    return LANGUAGES[CURRENT_LANGUAGE].get(key, key)
 
 
 
@@ -61,7 +191,7 @@ class INPUT(ctypes.Structure):
 class BotGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Silkroad Vision Bot | Auto Hunter")
+        self.root.title(tr("title"))
         self.root.geometry("650x900")
         self.root.resizable(True, True)
         self.root.minsize(600, 700)  # Minimum window size
@@ -130,7 +260,7 @@ class BotGUI:
         status_frame = ttk.LabelFrame(main_frame, text="📊 Status", padding="10")
         status_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
-        self.status_label = ttk.Label(status_frame, text="⭕ STOPPED", font=("Arial", 12, "bold"), foreground="red")
+        self.status_label = ttk.Label(status_frame, text="⭕ " + tr("stopped"), font=("Arial", 12, "bold"), foreground="red")
         self.status_label.grid(row=0, column=0, pady=5)
         
         self.kills_label = ttk.Label(status_frame, text="Mobs Killed: 0", font=("Arial", 10))
@@ -144,7 +274,7 @@ class BotGUI:
         settings_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
         # Skill delay setting
-        ttk.Label(settings_frame, text="Skill Interval (sec):").grid(row=0, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("skill_interval")).grid(row=0, column=0, sticky=tk.W, pady=5)
         self.skill_delay_var = tk.DoubleVar(value=0.15)
         skill_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=1.0, variable=self.skill_delay_var,
                                       orient=tk.HORIZONTAL, length=200, command=self.update_skill_delay)
@@ -153,7 +283,7 @@ class BotGUI:
         self.skill_delay_label.grid(row=0, column=2)
         
         # Mob delay setting
-        ttk.Label(settings_frame, text="Mob Interval (sec):").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("mob_interval")).grid(row=1, column=0, sticky=tk.W, pady=5)
         self.mob_delay_var = tk.DoubleVar(value=0.2)
         mob_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=2.0, variable=self.mob_delay_var,
                                     orient=tk.HORIZONTAL, length=200, command=self.update_mob_delay)
@@ -162,7 +292,7 @@ class BotGUI:
         self.mob_delay_label.grid(row=1, column=2)
         
         # Skill keys
-        ttk.Label(settings_frame, text="Skill Keys:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("skill_keys")).grid(row=2, column=0, sticky=tk.W, pady=5)
         self.skills_entry = ttk.Entry(settings_frame, width=15)
         self.skills_entry.insert(0, "1,2,3,4")
         self.skills_entry.grid(row=2, column=1, padx=5, sticky=tk.W)
@@ -172,14 +302,14 @@ class BotGUI:
         self.keypress_only_var = tk.BooleanVar(value=True)
         keypress_only_check = ttk.Checkbutton(
             settings_frame,
-            text="⌨️ Sadece Tuş Vuruşu Modu (Canavar seçimi kapalı)",
+            text=tr("keypress_only"),
             variable=self.keypress_only_var,
             command=self.toggle_keypress_only_mode
         )
         keypress_only_check.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=8)
 
         # Input method selection
-        ttk.Label(settings_frame, text="Input Method:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("input_method")).grid(row=4, column=0, sticky=tk.W, pady=5)
         self.input_method_var = tk.StringVar(value="Auto (Recommended)")
         self.input_method_combo = ttk.Combobox(
             settings_frame,
@@ -197,33 +327,33 @@ class BotGUI:
         self.input_method_combo.bind("<<ComboboxSelected>>", self.update_input_method)
         
         # Set Hunt Region button
-        self.set_hunt_region_button = ttk.Button(settings_frame, text="📍 Set Hunt Region (Template Detection)", 
+        self.set_hunt_region_button = ttk.Button(settings_frame, text=tr("set_hunt_region"), 
                                                  command=self.set_hunt_region)
         self.set_hunt_region_button.grid(row=5, column=0, columnspan=3, pady=10)
         
         # Template threshold (for template matching mode)
-        ttk.Label(settings_frame, text="Template Threshold:").grid(row=6, column=0, sticky=tk.W, pady=5)
+        ttk.Label(settings_frame, text=tr("template_threshold")).grid(row=6, column=0, sticky=tk.W, pady=5)
         self.template_threshold_var = tk.DoubleVar(value=0.4)
         template_threshold_slider = ttk.Scale(settings_frame, from_=0.1, to=0.9, variable=self.template_threshold_var,
                                             orient=tk.HORIZONTAL, length=200, command=self.update_template_threshold)
         template_threshold_slider.grid(row=6, column=1, padx=5)
         self.template_threshold_label = ttk.Label(settings_frame, text="0.40")
         self.template_threshold_label.grid(row=6, column=2)
-        ttk.Label(settings_frame, text="(düşük=hassas, yüksek=katı)", font=("Arial", 8), foreground="gray").grid(row=6, column=0, columnspan=3, sticky=tk.E, pady=0)
+        ttk.Label(settings_frame, text=tr("threshold_hint"), font=("Arial", 8), foreground="gray").grid(row=6, column=0, columnspan=3, sticky=tk.E, pady=0)
 
         # Buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=3, column=0, columnspan=2, pady=15)
         
-        self.start_button = ttk.Button(button_frame, text="▶️ START", command=self.start_bot, width=15)
+        self.start_button = ttk.Button(button_frame, text=tr("start"), command=self.start_bot, width=15)
         self.start_button.grid(row=0, column=0, padx=5)
         
-        self.stop_button = ttk.Button(button_frame, text="⏹️ STOP", command=self.stop_bot, 
+        self.stop_button = ttk.Button(button_frame, text=tr("stop"), command=self.stop_bot, 
                                      width=15, state=tk.DISABLED)
         self.stop_button.grid(row=0, column=1, padx=5)
         
         # Log panel
-        log_frame = ttk.LabelFrame(main_frame, text="📝 Log", padding="5")
+        log_frame = ttk.LabelFrame(main_frame, text=tr("log"), padding="5")
         log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         
         self.log_text = scrolledtext.ScrolledText(log_frame, height=15, width=70, 
@@ -231,7 +361,7 @@ class BotGUI:
         self.log_text.pack(fill=tk.BOTH, expand=True)
         
         # Info
-        info_label = ttk.Label(main_frame, text="Press 'Q' to stop the bot", 
+        info_label = ttk.Label(main_frame, text=tr("press_q"), 
                               font=("Arial", 8), foreground="gray")
         info_label.grid(row=5, column=0, columnspan=2, pady=5)
         
@@ -281,16 +411,16 @@ class BotGUI:
         
         # Create instruction dialog
         dialog = tk.Toplevel(self.root)
-        dialog.title("Select Hunt Region")
-        dialog.geometry("450x200")
+        dialog.title(tr("draw_region"))
+        dialog.geometry("500x280")
         dialog.transient(self.root)
         
-        ttk.Label(dialog, text="🎯 Draw Hunt Region", font=("Arial", 14, "bold")).pack(pady=10)
-        ttk.Label(dialog, text="Instructions:", font=("Arial", 10, "bold")).pack(pady=5)
-        ttk.Label(dialog, text="1. Click OK button below", font=("Arial", 9)).pack()
-        ttk.Label(dialog, text="2. Click and drag on your game screen to draw a rectangle", font=("Arial", 9)).pack()
-        ttk.Label(dialog, text="3. Release mouse button to confirm selection", font=("Arial", 9)).pack()
-        ttk.Label(dialog, text="4. The area you draw will be the hunt region", font=("Arial", 9)).pack(pady=5)
+        ttk.Label(dialog, text=tr("draw_region"), font=("Arial", 14, "bold")).pack(pady=10)
+        ttk.Label(dialog, text=tr("draw_instructions"), font=("Arial", 10, "bold")).pack(pady=5)
+        ttk.Label(dialog, text=tr("draw_step1"), font=("Arial", 9)).pack()
+        ttk.Label(dialog, text=tr("draw_step2"), font=("Arial", 9)).pack()
+        ttk.Label(dialog, text=tr("draw_step3"), font=("Arial", 9)).pack()
+        ttk.Label(dialog, text=tr("draw_step4"), font=("Arial", 9)).pack(pady=5)
         
         def start_selection():
             dialog.destroy()
@@ -369,15 +499,15 @@ class BotGUI:
                             py = y + (h // (rows + 1)) * (row + 1)
                             self.click_points.append((px, py))
                     
-                    self.log(f"✅ Hunt region set: X={x}, Y={y}, W={w}, H={h}")
-                    self.log(f"   Generated {len(self.click_points)} click points in the region")
+                    self.log(tr("hunt_region_set").format(x, y, w, h))
+                    self.log(tr("click_points").format(len(self.click_points)))
                 else:
-                    self.log("❌ Region too small! Please select a larger area.")
+                    self.log(tr("region_small"))
             else:
-                self.log("❌ Selection cancelled.")
+                self.log(tr("selection_cancelled"))
         
-        ttk.Button(dialog, text="OK - Start Selection", command=start_selection).pack(pady=15)
-        ttk.Button(dialog, text="Cancel", command=lambda: [dialog.destroy(), self.log("❌ Region selection cancelled")]).pack()
+        ttk.Button(dialog, text=tr("ok_start"), command=start_selection).pack(pady=15)
+        ttk.Button(dialog, text=tr("cancel"), command=lambda: [dialog.destroy(), self.log(tr("selection_cancelled"))]).pack()
             
     
     def log(self, message):
@@ -394,20 +524,20 @@ class BotGUI:
         self.skills = [s.strip() for s in skills_text.split(',') if s.strip()]
         
         if not self.skills:
-            self.log("❌ ERROR: Skill keys cannot be empty!")
+            self.log(tr("error_empty_skills"))
             return
         
         if not self.keypress_only_mode:
             # Check hunt region
             if not self.hunt_region:
-                self.log("❌ ERROR: Hunt region not set!")
-                self.log("   Click 'Set Hunt Region' button first")
+                self.log(tr("error_hunt_not_set"))
+                self.log(tr("error_click_button"))
                 return
 
             # Template mode: check if templates are loaded
             if not self.monster_templates:
-                self.log("❌ ERROR: No monster templates loaded!")
-                self.log("   Add PNG files to monsters/ folder")
+                self.log(tr("error_no_templates"))
+                self.log(tr("error_add_png"))
                 return
         
         self.bot_running = True
@@ -416,7 +546,7 @@ class BotGUI:
         
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
-        self.status_label.config(text="✅ RUNNING", foreground="green")
+        self.status_label.config(text="✅ " + tr("running"), foreground="green")
         
         self.log("=" * 60)
         self.log("🚀 BOT STARTED!")
@@ -451,7 +581,7 @@ class BotGUI:
         self.bot_running = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
-        self.status_label.config(text="⭕ STOPPED", foreground="red")
+        self.status_label.config(text="⭕ " + tr("stopped"), foreground="red")
         self.log("🛑 Bot stopped!")
         
     def update_timer(self):
