@@ -18,6 +18,7 @@
   - `monsters/` klasöründeki PNG dosyalarla canavarlara karşı gözlem yapma
   - OpenCV `cv2.matchTemplate` kullanarak görüntü eşleştirme
   - Ayarlanabilir hassasiyet (Threshold) seçeneği
+  - Aynı canavar etiketi ekranda kalsa bile kısa süreli tekrar tıklama engeli
   - **Tesseract OCR gerekmez!**
 
 - **🖱️ Esnek İnput Yöntemi Seçimi**
@@ -126,6 +127,12 @@ monsters/
    - Bulduğu konuma tıkla
    - Skill tuşlarını bas
    - Sonraki canavar ara
+
+### Ölü Hedefe Tekrar Tıklama Engeli
+
+- Bot, tıkladığı hedefin adını + konumunu kısa süreli hafızada tutar.
+- Aynı isim aynı noktada tekrar bulunursa (ör. ölen canavarın etiketi birkaç saniye kaldığında) hedef atlanır.
+- Böylece karakterin sürekli aynı ölü hedefe yürüyüp farm alanından uzaklaşması azaltılır.
 
 ### Debug Tekniği
 - Log penceresinde "Confidence = 0.XX" görüyorsan → İyi işaret! ✅

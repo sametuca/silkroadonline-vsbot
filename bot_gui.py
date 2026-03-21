@@ -25,6 +25,7 @@ LANGUAGES = {
         "mob_interval": "Canavar Arası Bekleme:",
         "skill_keys": "Skill Tuşları:",
         "target_monsters": "Aranacak Canavarlar:",
+        "auto_tab_toggle": "☑ Auto TAB Aktif",
         "auto_tab_interval": "Auto TAB Aralığı:",
         "input_method": "Input Yöntemi:",
         "keypress_only": "☑ Sadece Tuş Vuruşu Modu",
@@ -62,6 +63,7 @@ LANGUAGES = {
         "mob_interval": "Mob Interval:",
         "skill_keys": "Skill Keys:",
         "target_monsters": "Target Monsters:",
+        "auto_tab_toggle": "☑ Auto TAB Enabled",
         "auto_tab_interval": "Auto TAB Interval:",
         "input_method": "Input Method:",
         "keypress_only": "☑ Keypress Only Mode",
@@ -202,6 +204,7 @@ class BotGUI:
         self.buff_enabled = True  # Enable/disable buff system
 
         # Auto TAB system
+        self.auto_tab_enabled = True
         self.auto_tab_interval = 15  # seconds
         self.last_auto_tab_time = 0
         
@@ -215,12 +218,15 @@ class BotGUI:
         self.monster_templates = {}  # {monster_name: cv2_image}
         self.template_threshold = 0.4  # Minimum match confidence (lowered for better detection)
         self.template_debug = True  # Show all match scores for debugging
+        self.target_click_cooldown = 2.5  # Ignore same target/position briefly after click
+        self.target_position_tolerance = 55  # Pixel tolerance for "same target"
+        self.recent_target_clicks = []
+        self.last_cooldown_log_time = 0
         
         # Load monster templates from folder
         self.load_monster_templates()
         
         # Statistics
-        self.total_kills = 0
         self.start_time = None
         
         self.setup_ui()
@@ -325,11 +331,8 @@ class BotGUI:
         stats_frame = ttk.Frame(status_frame)
         stats_frame.pack(fill='x', pady=5)
         
-        self.kills_label = ttk.Label(stats_frame, text="Mobs Killed: 0", font=("Segoe UI", 10))
-        self.kills_label.pack(side='left', padx=10)
-        
         self.time_label = ttk.Label(stats_frame, text="Running Time: 00:00:00", font=("Segoe UI", 10))
-        self.time_label.pack(side='right', padx=10)
+        self.time_label.pack(padx=10)
         
         # ============ SETTINGS PANEL ============
         settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Settings", padding="12")
@@ -409,8 +412,16 @@ class BotGUI:
         self.template_threshold_label.grid(row=7, column=2, padx=5)
         ttk.Label(settings_frame, text=tr("threshold_hint"), style='Info.TLabel').grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(0, 5))
 
-        # ============ BUFF SYSTEM ============
-        ttk.Label(settings_frame, text=tr("auto_tab_interval")).grid(row=8, column=0, sticky=tk.W, pady=6)
+        self.auto_tab_enabled_var = tk.BooleanVar(value=True)
+        auto_tab_check = ttk.Checkbutton(
+            settings_frame,
+            text=tr("auto_tab_toggle"),
+            variable=self.auto_tab_enabled_var,
+            command=self.toggle_auto_tab
+        )
+        auto_tab_check.grid(row=8, column=0, columnspan=3, sticky=tk.W, pady=6)
+
+        ttk.Label(settings_frame, text=tr("auto_tab_interval")).grid(row=9, column=0, sticky=tk.W, pady=6)
         self.auto_tab_interval_var = tk.DoubleVar(value=15)
         auto_tab_slider = ttk.Scale(
             settings_frame,
@@ -421,29 +432,29 @@ class BotGUI:
             length=200,
             command=self.update_auto_tab_interval
         )
-        auto_tab_slider.grid(row=8, column=1, padx=8, sticky='ew')
+        auto_tab_slider.grid(row=9, column=1, padx=8, sticky='ew')
         self.auto_tab_interval_label = ttk.Label(settings_frame, text="15 sn", width=8)
-        self.auto_tab_interval_label.grid(row=8, column=2, padx=5)
+        self.auto_tab_interval_label.grid(row=9, column=2, padx=5)
 
         # ============ BUFF SYSTEM ============
         sep2 = ttk.Separator(settings_frame, orient='horizontal')
-        sep2.grid(row=9, column=0, columnspan=3, sticky='ew', pady=10)
+        sep2.grid(row=10, column=0, columnspan=3, sticky='ew', pady=10)
         
         # Buff Keys
-        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=10, column=0, sticky=tk.W, pady=6)
+        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=11, column=0, sticky=tk.W, pady=6)
         self.buff_keys_entry = ttk.Entry(settings_frame, width=15)
         self.buff_keys_entry.insert(0, "F2")
-        self.buff_keys_entry.grid(row=10, column=1, padx=8, sticky=tk.W)
-        ttk.Label(settings_frame, text="(keys for buffs)", style='Info.TLabel').grid(row=10, column=2, sticky=tk.W, padx=5)
+        self.buff_keys_entry.grid(row=11, column=1, padx=8, sticky=tk.W)
+        ttk.Label(settings_frame, text="(keys for buffs)", style='Info.TLabel').grid(row=11, column=2, sticky=tk.W, padx=5)
 
         # Buff Interval
-        ttk.Label(settings_frame, text="⏱️ Buff Interval (min):").grid(row=11, column=0, sticky=tk.W, pady=6)
+        ttk.Label(settings_frame, text="⏱️ Buff Interval (min):").grid(row=12, column=0, sticky=tk.W, pady=6)
         self.buff_interval_var = tk.DoubleVar(value=30)
         buff_interval_slider = ttk.Scale(settings_frame, from_=5, to=120, variable=self.buff_interval_var,
                                         orient=tk.HORIZONTAL, length=200, command=self.update_buff_interval)
-        buff_interval_slider.grid(row=11, column=1, padx=8, sticky='ew')
+        buff_interval_slider.grid(row=12, column=1, padx=8, sticky='ew')
         self.buff_interval_label = ttk.Label(settings_frame, text="30 min", width=8)
-        self.buff_interval_label.grid(row=11, column=2, padx=5)
+        self.buff_interval_label.grid(row=12, column=2, padx=5)
 
         # Buff enabled checkbox
         self.buff_enabled_var = tk.BooleanVar(value=True)
@@ -453,7 +464,7 @@ class BotGUI:
             variable=self.buff_enabled_var,
             command=self.toggle_buff_system
         )
-        buff_enabled_check.grid(row=12, column=0, columnspan=3, sticky=tk.W, pady=8)
+        buff_enabled_check.grid(row=13, column=0, columnspan=3, sticky=tk.W, pady=8)
 
         # Configure grid weight for better layout
         settings_frame.columnconfigure(1, weight=1)
@@ -531,6 +542,14 @@ class BotGUI:
         seconds = float(value)
         self.auto_tab_interval = seconds
         self.auto_tab_interval_label.config(text=f"{seconds:.0f} sn")
+
+    def toggle_auto_tab(self):
+        """Enable/disable auto TAB key presses."""
+        self.auto_tab_enabled = self.auto_tab_enabled_var.get()
+        if self.auto_tab_enabled:
+            self.log("⚔️ Auto TAB: ON")
+        else:
+            self.log("⚔️ Auto TAB: OFF")
     
     def toggle_buff_system(self):
         """Enable/disable buff system."""
@@ -671,6 +690,7 @@ class BotGUI:
         buff_keys_text = self.buff_keys_entry.get().strip()
         self.buff_keys = [s.strip() for s in buff_keys_text.split(',') if s.strip()]
         self.buff_enabled = self.buff_enabled_var.get()
+        self.auto_tab_enabled = self.auto_tab_enabled_var.get()
         self.last_buff_time = time.time()  # Reset buff timer on start
         self.last_auto_tab_time = time.time()
         
@@ -716,7 +736,6 @@ class BotGUI:
                 self.active_template_filter = set()
         
         self.bot_running = True
-        self.total_kills = 0
         self.start_time = time.time()
         
         self.start_button.config(state=tk.DISABLED)
@@ -751,6 +770,7 @@ class BotGUI:
         self.log(f"⚙️ Skill interval: {self.skill_delay}s")
         self.log(f"⚙️ Mob interval: {self.mob_delay}s")
         self.log(f"🎨 Template threshold: {self.template_threshold:.2f}")
+        self.log(f"⚔️ Auto TAB: {'ON' if self.auto_tab_enabled else 'OFF'}")
         self.log(f"⚔️ Auto TAB interval: {self.auto_tab_interval:.0f}s")
         self.log("=" * 60)
         
@@ -815,6 +835,52 @@ class BotGUI:
         if not name:
             return ""
         return ''.join(ch.lower() for ch in name if ch.isalnum())
+
+    def cleanup_recent_target_clicks(self, now=None):
+        """Keep recent target cache small and time-bounded."""
+        if now is None:
+            now = time.time()
+
+        max_keep = self.target_click_cooldown + 0.5
+        self.recent_target_clicks = [
+            item for item in self.recent_target_clicks
+            if now - item['time'] <= max_keep
+        ]
+
+    def is_recent_target_click(self, monster_name, center_x, center_y, now=None):
+        """Check whether this target position was clicked recently (likely dead label linger)."""
+        if now is None:
+            now = time.time()
+
+        normalized_name = self.normalize_monster_name(monster_name)
+        tolerance_sq = self.target_position_tolerance * self.target_position_tolerance
+
+        for item in self.recent_target_clicks:
+            if now - item['time'] > self.target_click_cooldown:
+                continue
+
+            if item['name'] != normalized_name:
+                continue
+
+            dx = center_x - item['x']
+            dy = center_y - item['y']
+            if (dx * dx + dy * dy) <= tolerance_sq:
+                return True
+
+        return False
+
+    def remember_target_click(self, monster_name, center_x, center_y, now=None):
+        """Store clicked target to avoid immediate re-click loops."""
+        if now is None:
+            now = time.time()
+
+        self.recent_target_clicks.append({
+            'name': self.normalize_monster_name(monster_name),
+            'x': center_x,
+            'y': center_y,
+            'time': now,
+        })
+        self.cleanup_recent_target_clicks(now)
         
     def load_monster_templates(self):
         """Load monster template images from monsters/ folder."""
@@ -859,9 +925,7 @@ class BotGUI:
             img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
             gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             
-            best_match = None
-            best_confidence = 0
-            best_x, best_y = 0, 0
+            candidates = []
             
             # Try each template
             for monster_name, template in self.monster_templates.items():
@@ -888,19 +952,42 @@ class BotGUI:
                         self.log(f"📸 {monster_name}: Confidence = {max_val:.2f} (threshold: {self.template_threshold:.2f})")
                     
                     # max_val is the normalized correlation value (0-1)
-                    if max_val > best_confidence and max_val >= self.template_threshold:
-                        best_confidence = max_val
-                        best_match = monster_name
-                        best_x, best_y = max_loc
+                    if max_val >= self.template_threshold:
+                        candidates.append((max_val, monster_name, max_loc[0], max_loc[1]))
                         
                 except Exception as e:
                     self.log(f"⚠️ Template eşleştirme hatası ({monster_name}): {e}")
                     continue
             
-            if best_match:
-                return best_match, best_confidence, best_x, best_y
-            else:
+            if not candidates:
                 return None, 0, 0, 0
+
+            # Highest confidence first; skip recently clicked same-position targets.
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            now = time.time()
+            self.cleanup_recent_target_clicks(now)
+            skipped_recent = 0
+
+            for confidence, monster_name, template_x, template_y in candidates:
+                template = self.monster_templates.get(monster_name)
+                if template is None:
+                    continue
+
+                template_h, template_w = template.shape[:2]
+                center_x = template_x + template_w // 2
+                center_y = template_y + template_h // 2
+
+                if self.is_recent_target_click(monster_name, center_x, center_y, now):
+                    skipped_recent += 1
+                    continue
+
+                return monster_name, confidence, template_x, template_y
+
+            if skipped_recent > 0 and now - self.last_cooldown_log_time > 1.5:
+                self.log(f"⏳ Aynı hedef tekrarlandı, {skipped_recent} eşleşme cooldown ile atlandı")
+                self.last_cooldown_log_time = now
+
+            return None, 0, 0, 0
                 
         except Exception as e:
             self.log(f"⚠️ Detect monster hatası: {e}")
@@ -1013,7 +1100,7 @@ class BotGUI:
 
             # Press TAB every fixed interval
             current_time = time.time()
-            if current_time - self.last_auto_tab_time >= self.auto_tab_interval:
+            if self.auto_tab_enabled and current_time - self.last_auto_tab_time >= self.auto_tab_interval:
                 self.press_key('tab')
                 self.last_auto_tab_time = current_time
                 self.log("⚔️ Auto TAB pressed")
@@ -1048,6 +1135,9 @@ class BotGUI:
                         time.sleep(3)
                         continue
                     
+                    # Clear stale cache entries before each detection pass.
+                    self.cleanup_recent_target_clicks()
+
                     # Take screenshot of hunt region
                     x, y, w, h = self.hunt_region
                     screenshot = pyautogui.screenshot(region=(x, y, w, h))
@@ -1060,13 +1150,12 @@ class BotGUI:
                     
                     if monster_name and confidence >= self.template_threshold:
                         # Monster found!
-                        self.total_kills += 1
-                        self.root.after(0, lambda: self.kills_label.config(
-                            text=f"Mobs Killed: {self.total_kills}"))
                         
                         # Calculate click position (center of template in screen coordinates)
                         template = self.monster_templates[monster_name]
                         template_h, template_w = template.shape[:2]
+                        rel_center_x = template_x + template_w // 2
+                        rel_center_y = template_y + template_h // 2
                         center_x = x + template_x + template_w // 2
                         center_y = y + template_y + template_h // 2
                         
@@ -1077,6 +1166,7 @@ class BotGUI:
                         offset_y = center_y + random.randint(-5, 5)
                         pyautogui.moveTo(offset_x, offset_y, duration=0.08)
                         pydirectinput.click()
+                        self.remember_target_click(monster_name, rel_center_x, rel_center_y)
                         time.sleep(0.1)
                         
                         # Execute skills
