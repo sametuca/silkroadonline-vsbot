@@ -1,21 +1,26 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
+import sys
+import subprocess
 import threading
 import pyautogui
 import pydirectinput
 import time
 import os
 import json
-import random
+import webbrowser
 import keyboard
 import ctypes
 from ctypes import wintypes
-from PIL import Image
+from PIL import Image, ImageTk
 import cv2
 import numpy as np
 
 # Optimize pydirectinput pause for games
 pydirectinput.PAUSE = 0
+
+# Help tab: YouTube watch URL video ID only (the part after v=)
+HELP_YOUTUBE_VIDEO_ID = ""
 
 # LANGUAGE SUPPORT
 LANGUAGES = {
@@ -24,19 +29,38 @@ LANGUAGES = {
         "skill_interval": "Skill Aralığı:",
         "mob_interval": "Canavar Arası Bekleme:",
         "skill_keys": "Skill Tuşları:",
+        "skill_keys_hint": "(1–8: işaretlenenler sırayla basılır)",
         "target_monsters": "Aranacak Canavarlar:",
         "auto_tab_toggle": "☑ Auto TAB Aktif",
         "auto_tab_interval": "Auto TAB Aralığı:",
         "input_method": "Input Yöntemi:",
         "keypress_only": "☑ Sadece Tuş Vuruşu Modu",
-        "set_hunt_region": "📍 Hunt Region Seç (Template Tespiti)",
-        "template_threshold": "Template Hassasiyet Eşiği:",
-        "threshold_hint": "(düşük=hassas, yüksek=katı)",
-        "start": "▶️ BAŞLAT",
-        "stop": "⏹️ DUR",
-        "log": "📝 Log",
-        "press_q": "Botu durdurmak için 'Q' tuşuna basın",
-        "draw_region": "🎯 Hunt Region Çiz",
+        "select_game_window": "Oyun penceresini seç",
+        "set_hunt_region": "Manuel alan çiz (dikdörtgen)",
+        "window_pick_title": "Pencere seç",
+        "window_pick_hint": "Listeden oyun penceresini seç (client alanı = tarama bölgesi).",
+        "window_refresh": "Yenile",
+        "window_selected": "✅ Pencere: {} | Client: X={}, Y={}, W={}, H={}",
+        "window_invalid": "❌ Seçili pencere artık geçerli değil (kapanmış olabilir).",
+        "window_pick_none": "❌ Listeden bir satır seç.",
+        "window_capture_printwindow_hint": (
+            "   Görüntü doğrudan oyun penceresinden alınır; bot üstte olsa bile oyun içeriği okunur (Windows PrintWindow)."
+        ),
+        "window_capture_fallback_once": (
+            "⚠️ Pencere yakalama siyah/boş döndü — geçici olarak ekran kopyası kullanılıyor. "
+            "Botu kenara alın veya kenarlıksız tam ekran deneyin (bazı DirectX istemcileri PrintWindow desteklemez)."
+        ),
+        "status_mode_template_png": "Tespit: PNG şablon (monsters/)",
+        "reclick_lockout": "Aynı bölgeye tekrar tıklama kilidi:",
+        "reclick_hint": "(sn; skill sonrası zemine tıklayıp yürümeyi azaltır)",
+        "skip_reclick_log": "⏭️ Aynı bölge — ek hedef tıklaması yok (skill devam)",
+        "detect_log_skip_click": " | tıklama yok (aynı bölge kilidi)",
+        "start": "BAŞLAT",
+        "stop": "DUR",
+        "log": "Log",
+        "status_panel_title": "Durum",
+        "press_q": "Botu durdurmak için Ctrl+Q tuşlarına basın",
+        "draw_region": "Hunt Region Çiz",
         "draw_instructions": "Talimatlar:",
         "draw_step1": "1. Aşağıdaki OK butonuna tıkla",
         "draw_step2": "2. Oyun ekranında farenle bir dikdörtgen çiz",
@@ -49,13 +73,78 @@ LANGUAGES = {
         "region_small": "❌ Bölge çok küçük! Daha büyük bir alan seç.",
         "selection_cancelled": "❌ Seçim iptal edildi.",
         "error_empty_skills": "❌ HATA: Skill tuşları boş olamaz!",
-        "error_hunt_not_set": "❌ HATA: Hunt region ayarlanmamış!",
-        "error_click_button": "   Önce 'Hunt Region Seç' butonuna tıkla",
+        "error_hunt_not_set": "❌ HATA: Tarama alanı yok — pencere seç veya manuel alan çiz.",
+        "error_click_button": "   'Oyun penceresini seç' veya 'Manuel alan çiz' kullan",
         "error_no_templates": "❌ HATA: Canavar template'i yüklenmedi!",
         "error_add_png": "   monsters/ klasörüne PNG dosyaları ekle",
+        "save_monster_template": "Canavar şablonu kaydet → monsters/",
+        "tpl_wizard_title": "Canavar şablonu kaydet",
+        "tpl_wizard_hint": "Görüntü üzerinde sürükleyerek hedefi kırpın; şablon adını yazıp kaydedin.",
+        "tpl_monster_name": "Şablon adı (dosya adı):",
+        "tpl_save_btn": "Kaydet",
+        "tpl_capture_fail": "Önce oyun penceresi seç veya hunt alanı çiz.",
+        "tpl_saved": "✅ Kaydedildi: monsters/{}.png",
+        "tpl_name_bad": "❌ Geçerli bir ad gir (ör: Mangyang veya Earth_Ghost).",
+        "tpl_crop_small": "❌ Seçilen alan çok küçük.",
+        "tpl_overwrite": "'{}' zaten var. Üzerine yazılsın mı?",
         "running": "✅ ÇALIŞIYOR",
         "stopped": "⏹️ DURDURULDU",
         "line_separator": "=" * 50,
+        "wf_quick_start": "Sıra: ① Tarama alanı → ② İsim / şablon → ③ Skill’ler → ▶ Başlat",
+        "ui_tab_status": "Durum",
+        "ui_tab_scan": "Tarama",
+        "ui_tab_monsters": "Canavar",
+        "ui_tab_combat": "Savaş",
+        "ui_tab_extra": "Ek ayarlar",
+        "ui_tab_log": "Log",
+        "ui_tab_help": "Yardım",
+        "help_title": "Kolay kullanım videosu",
+        "help_intro": "Botun kurulumu ve kullanımı için YouTube’daki adım adım videoyu aşağıdaki düğmeyle tarayıcıda açabilirsiniz.",
+        "help_open_youtube": "YouTube’da izle",
+        "help_no_video": "Henüz video tanımlı değil. bot_gui.py içinde HELP_YOUTUBE_VIDEO_ID sabitine, izleme adresindeki v= sonrası gelen video kimliğini yazın.",
+        "wf_step1_title": "1 · Oyun ve tarama alanı",
+        "wf_step1_hint": (
+            "Oyun penceresi (kolay) veya «Manuel alan çiz»: bot yalnız bu dikdörtgende arar. "
+            "İmleç yanlış yere gidiyorsa manuel alan deneyin — görüntü ve tıklama aynı ekran karesinden hesaplanır; "
+            "pencere modundaki PrintWindow / ölçek kayması olmaz. Çizerken bot penceresini kenara alın."
+        ),
+        "wf_step2_title": "2 · Canavar ismi ve şablon",
+        "wf_step2_hint": (
+            "① «Canavar şablonu kaydet» ile hedefi kırpıp monsters/ klasörüne kaydedin. "
+            "② Aşağıya şablon dosya adlarıyla uyumlu isimleri yazın (virgülle birden fazla) — hangi PNG’lerin aranacağını belirler."
+        ),
+        "wf_step3_title": "3 · Savaş (skill’ler)",
+        "wf_step3_hint": "Tuş sırası ve gecikmeler. «Sadece tuş» açıksa hedef seçilmez.",
+        "wf_step4_title": "4 · Ek ayarlar",
+        "wf_step4_hint": "TAB, tekrar tıklama kilidi ve giriş yöntemi.",
+        "status_modes_title": "Anlık mod özeti",
+        "status_zerk_check": "☑ Zerk modu (oyunda açıksa işaretle — bot ekrandan algılamaz)",
+        "status_bot_running": "Bot: çalışıyor",
+        "status_bot_idle": "Bot: durdu",
+        "status_hunt_window": "Tarama · pencere",
+        "status_hunt_manual": "Tarama · manuel alan",
+        "status_hunt_none": "Tarama · ayarlanmadı",
+        "status_mode_keypress": "Sadece tuş",
+        "status_mode_auto_tab": "Auto TAB",
+        "status_zerk_line_on": "Zerk: AÇIK",
+        "status_zerk_line_off": "Zerk: kapalı",
+        "status_input": "Giriş",
+        "buff_mode_toggle": "☑ Buff modu (F2 → 1-5 → F1, saldırı çubuğuna dön)",
+        "buff_interval": "Buff yenileme aralığı:",
+        "buff_interval_hint": "(dakika; süre dolunca tekrar F2 + skill)",
+        "buff_cast_gap": "F2 çubuğunda tuşlar arası bekleme (sn):",
+        "buff_cast_gap_hint": "(1’e bastıktan sonra animasyon bitene kadar bekle; skill aralığından ayrı)",
+        "buff_slot_times": "İsteğe bağlı — her slot için sn (1→5, virgülle):",
+        "buff_slot_times_hint": "Örn: 2, 1.5, 3, 1, 1 — boşsa yukarıdaki tek süre her aralıkta kullanılır.",
+        "buff_repeat_12": "☑ Sıra bitince 1 ve 2’ye bir kez daha bas (isteğe bağlı; tuş aralığından bağımsız)",
+        "status_buff_line": "Buff: {} dk | F2 tuş ara: ~{} sn",
+        "status_buff_off": "Buff: kapalı",
+        "log_buff_cycle": "✨ Buff döngüsü: F2 → 1-5{} → F1",
+        "language_label": "Dil:",
+        "language_restart_title": "Dil değişikliği",
+        "language_restart_confirm": (
+            "Arayüzün güncellenmesi için uygulama yeniden başlatılacak. Devam edilsin mi?"
+        ),
     },
     "EN": {
         "title": "Silkroad Vision Bot | Auto Hunter",
@@ -67,14 +156,32 @@ LANGUAGES = {
         "auto_tab_interval": "Auto TAB Interval:",
         "input_method": "Input Method:",
         "keypress_only": "☑ Keypress Only Mode",
-        "set_hunt_region": "📍 Set Hunt Region (Template Detection)",
-        "template_threshold": "Template Threshold:",
-        "threshold_hint": "(low=sensitive, high=strict)",
-        "start": "▶️ START",
-        "stop": "⏹️ STOP",
-        "log": "📝 Log",
-        "press_q": "Press 'Q' to stop the bot",
-        "draw_region": "🎯 Draw Hunt Region",
+        "select_game_window": "Select game window",
+        "set_hunt_region": "Draw region manually (rectangle)",
+        "window_pick_title": "Pick window",
+        "window_pick_hint": "Choose your game window (client area = scan region).",
+        "window_refresh": "Refresh",
+        "window_selected": "✅ Window: {} | Client: X={}, Y={}, W={}, H={}",
+        "window_invalid": "❌ Selected window is no longer valid (closed?).",
+        "window_pick_none": "❌ Select a row in the list.",
+        "window_capture_printwindow_hint": (
+            "   Capture reads the game window directly; the bot GUI on top does not block pixels (Windows PrintWindow)."
+        ),
+        "window_capture_fallback_once": (
+            "⚠️ Window capture was black/empty — using screen grab for now. "
+            "Move this app aside or try borderless fullscreen (some DirectX clients break PrintWindow)."
+        ),
+        "status_mode_template_png": "Detect: PNG templates (monsters/)",
+        "reclick_lockout": "Same-spot click lockout:",
+        "reclick_hint": "(sec; reduces move-to-ground clicks after skills)",
+        "skip_reclick_log": "⏭️ Same area — no extra target click (skills continue)",
+        "detect_log_skip_click": " | click skipped (same-area lockout)",
+        "start": "START",
+        "stop": "STOP",
+        "log": "Log",
+        "status_panel_title": "Status",
+        "press_q": "Press Ctrl+Q to stop the bot",
+        "draw_region": "Draw Hunt Region",
         "draw_instructions": "Instructions:",
         "draw_step1": "1. Click OK button below",
         "draw_step2": "2. Click and drag on your game screen to draw a rectangle",
@@ -87,18 +194,78 @@ LANGUAGES = {
         "region_small": "❌ Region too small! Please select a larger area.",
         "selection_cancelled": "❌ Selection cancelled.",
         "error_empty_skills": "❌ ERROR: Skill keys cannot be empty!",
-        "error_hunt_not_set": "❌ ERROR: Hunt region not set!",
-        "error_click_button": "   Click 'Set Hunt Region' button first",
+        "error_hunt_not_set": "❌ ERROR: No scan area — select a window or draw a region.",
+        "error_click_button": "   Use 'Select game window' or 'Draw region manually'",
         "error_no_templates": "❌ ERROR: No monster templates loaded!",
         "error_add_png": "   Add PNG files to monsters/ folder",
+        "save_monster_template": "Save monster template → monsters/",
+        "tpl_wizard_title": "Save monster template",
+        "tpl_wizard_hint": "Drag on the image to crop the target, enter a template name, then save.",
+        "tpl_monster_name": "Template name (filename):",
+        "tpl_save_btn": "Save",
+        "tpl_capture_fail": "Select game window or draw hunt region first.",
+        "tpl_saved": "✅ Saved: monsters/{}.png",
+        "tpl_name_bad": "❌ Enter a valid name (e.g. Mangyang or Earth_Ghost).",
+        "tpl_crop_small": "❌ Crop area is too small.",
+        "tpl_overwrite": "'{}' already exists. Overwrite?",
         "running": "✅ RUNNING",
         "stopped": "⏹️ STOPPED",
         "line_separator": "=" * 50,
+        "wf_quick_start": "Order: ① Scan area → ② Names / template → ③ Skills → ▶ Start",
+        "ui_tab_status": "Status",
+        "ui_tab_scan": "Scan",
+        "ui_tab_monsters": "Monsters",
+        "ui_tab_combat": "Combat",
+        "ui_tab_extra": "Extras",
+        "ui_tab_log": "Log",
+        "ui_tab_help": "Help",
+        "help_title": "Quick start video",
+        "help_intro": "Open the step-by-step tutorial on YouTube in your browser using the button below.",
+        "help_open_youtube": "Watch on YouTube",
+        "help_no_video": "No video is configured yet. Set HELP_YOUTUBE_VIDEO_ID in bot_gui.py to your YouTube video ID (the part after v= in the watch URL).",
+        "wf_step1_title": "1 · Game & scan area",
+        "wf_step1_hint": (
+            "Game window (easiest) or «Draw region manually»: the bot only searches that rectangle. "
+            "If clicks land in the wrong place, try manual region — capture and clicks use the same screen crop, "
+            "avoiding PrintWindow / scaling mismatch from window capture. Move the bot aside while drawing."
+        ),
+        "wf_step2_title": "2 · Monster names & template",
+        "wf_step2_hint": (
+            "① Use «Save monster template» to crop the target and save it under monsters/. "
+            "② Type names that match your PNG filenames below (comma-separated) — they select which templates to scan for."
+        ),
+        "wf_step3_title": "3 · Combat (skills)",
+        "wf_step3_hint": "Skill keys and delays. Keypress-only skips targeting.",
+        "wf_step4_title": "4 · Extra options",
+        "wf_step4_hint": "TAB, click lockout, and input method.",
+        "status_modes_title": "Live mode summary",
+        "status_zerk_check": "☑ Zerk mode (check if active in-game — not auto-detected)",
+        "status_bot_running": "Bot: running",
+        "status_bot_idle": "Bot: stopped",
+        "status_hunt_window": "Scan · window",
+        "status_hunt_manual": "Scan · manual rect",
+        "status_hunt_none": "Scan · not set",
+        "status_mode_keypress": "Keypress only",
+        "status_mode_auto_tab": "Auto TAB",
+        "status_zerk_line_on": "Zerk: ON",
+        "status_zerk_line_off": "Zerk: off",
+        "status_input": "Input",
+        "buff_mode_toggle": "☑ Buff mode (F2 → 1-5 → F1, back to attack bar)",
+        "buff_interval": "Buff refresh interval:",
+        "buff_interval_hint": "(minutes; F2 + skills again when due)",
+        "buff_repeat_12": "☑ Press 1 and 2 again after buff row",
+        "status_buff_line": "Buff: every {} min | F2 key gap: ~{} s",
+        "status_buff_off": "Buff: off",
+        "log_buff_cycle": "✨ Buff cycle: F2 → 1-5{} → F1",
+        "language_label": "Language:",
+        "language_restart_title": "Change language",
+        "language_restart_confirm": (
+            "The application will restart to update the interface. Continue?"
+        ),
     }
 }
 
 # Load/Set language
-import json
 LANG_FILE = "language.json"
 
 def get_language():
@@ -127,7 +294,6 @@ CURRENT_LANGUAGE = get_language()
 def tr(key):
     """Get translated string."""
     return LANGUAGES[CURRENT_LANGUAGE].get(key, key)
-
 
 
 # Windows API constants for SendInput
@@ -170,6 +336,174 @@ class INPUT(ctypes.Structure):
         ("union", _INPUT)
     ]
 
+
+class _BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD),
+        ("biWidth", wintypes.LONG),
+        ("biHeight", wintypes.LONG),
+        ("biPlanes", wintypes.WORD),
+        ("biBitCount", wintypes.WORD),
+        ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD),
+        ("biXPelsPerMeter", wintypes.LONG),
+        ("biYPelsPerMeter", wintypes.LONG),
+        ("biClrUsed", wintypes.DWORD),
+        ("biClrImportant", wintypes.DWORD),
+    ]
+
+
+class _BITMAPINFO(ctypes.Structure):
+    _fields_ = [("bmiHeader", _BITMAPINFOHEADER)]
+
+
+PW_CLIENTONLY = 0x00000001
+PW_RENDERFULLCONTENT = 0x00000002
+DIB_RGB_COLORS = 0
+
+
+def _capture_hwnd_client_pil(hwnd):
+    """
+    Capture HWND client area via PrintWindow into a PIL RGB image.
+    Unlike screen grabs, overlapping windows (e.g. this bot) do not cover the game pixels.
+    Some DirectX clients may return black; caller may fall back to screen capture.
+    """
+    try:
+        hwnd = int(hwnd)
+        u = ctypes.windll.user32
+        g = ctypes.windll.gdi32
+        if not u.IsWindow(hwnd) or u.IsIconic(hwnd):
+            return None
+        rect = wintypes.RECT()
+        if not u.GetClientRect(hwnd, ctypes.byref(rect)):
+            return None
+        w = int(rect.right - rect.left)
+        h = int(rect.bottom - rect.top)
+        if w < 8 or h < 8:
+            return None
+        hdc = u.GetDC(hwnd)
+        if not hdc:
+            return None
+        hdc_mem = None
+        hbmp = None
+        try:
+            hdc_mem = g.CreateCompatibleDC(hdc)
+            if not hdc_mem:
+                return None
+            hbmp = g.CreateCompatibleBitmap(hdc, w, h)
+            if not hbmp:
+                return None
+            g.SelectObject(hdc_mem, hbmp)
+            ok = int(
+                u.PrintWindow(hwnd, hdc_mem, PW_CLIENTONLY | PW_RENDERFULLCONTENT)
+            )
+            if not ok:
+                ok = int(u.PrintWindow(hwnd, hdc_mem, PW_CLIENTONLY))
+            if not ok:
+                return None
+            bmi = _BITMAPINFO()
+            bmi.bmiHeader.biSize = ctypes.sizeof(_BITMAPINFOHEADER)
+            bmi.bmiHeader.biWidth = w
+            bmi.bmiHeader.biHeight = -h
+            bmi.bmiHeader.biPlanes = 1
+            bmi.bmiHeader.biBitCount = 32
+            buf = (ctypes.c_ubyte * (w * h * 4))()
+            lines = int(
+                g.GetDIBits(
+                    hdc_mem,
+                    hbmp,
+                    0,
+                    h,
+                    ctypes.byref(buf),
+                    ctypes.byref(bmi),
+                    DIB_RGB_COLORS,
+                )
+            )
+            if lines == 0:
+                return None
+            arr = np.frombuffer(buf, dtype=np.uint8).reshape((h, w, 4))
+            rgb = cv2.cvtColor(arr, cv2.COLOR_BGRA2RGB)
+            return Image.fromarray(rgb)
+        finally:
+            if hbmp:
+                g.DeleteObject(hbmp)
+            if hdc_mem:
+                g.DeleteDC(hdc_mem)
+            u.ReleaseDC(hwnd, hdc)
+    except Exception:
+        return None
+
+
+def _try_set_process_dpi_aware():
+    """Align GDI capture / client rect with mouse coordinates on scaled Windows desktops."""
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
+
+def _client_area_screen_rect(hwnd):
+    """Return (x, y, w, h) in screen pixels for HWND client area, or None."""
+    try:
+        hwnd = int(hwnd)
+        u = ctypes.windll.user32
+        if not u.IsWindow(hwnd):
+            return None
+        if u.IsIconic(hwnd):
+            return None
+        rect = wintypes.RECT()
+        if not u.GetClientRect(hwnd, ctypes.byref(rect)):
+            return None
+        pt = wintypes.POINT(0, 0)
+        if not u.ClientToScreen(hwnd, ctypes.byref(pt)):
+            return None
+        w = rect.right - rect.left
+        h = rect.bottom - rect.top
+        if w < 80 or h < 80:
+            return None
+        return (int(pt.x), int(pt.y), int(w), int(h))
+    except Exception:
+        return None
+
+
+def _enumerate_top_level_windows(min_w=200, min_h=200):
+    """List (hwnd, title) for visible top-level windows, rough size filter."""
+    u = ctypes.windll.user32
+    out = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _cb(hwnd, _lp):
+        if not u.IsWindowVisible(hwnd):
+            return True
+        ln = u.GetWindowTextLengthW(hwnd)
+        if ln <= 0:
+            return True
+        buf = ctypes.create_unicode_buffer(ln + 1)
+        u.GetWindowTextW(hwnd, buf, ln + 1)
+        title = buf.value.strip()
+        if not title:
+            return True
+        r = wintypes.RECT()
+        if not u.GetWindowRect(hwnd, ctypes.byref(r)):
+            return True
+        ww = r.right - r.left
+        hh = r.bottom - r.top
+        if ww < min_w or hh < min_h:
+            return True
+        out.append((hwnd, title))
+        return True
+
+    u.EnumWindows(_cb, 0)
+    out.sort(key=lambda t: t[1].lower())
+    return out
+
+
 class BotGUI:
     def __init__(self, root):
         self.root = root
@@ -183,207 +517,867 @@ class BotGUI:
         CURRENT_LANGUAGE = get_language()
         
         self.root.title(tr("title"))
-        self.root.geometry("650x900")
         self.root.resizable(True, True)
-        self.root.minsize(600, 700)  # Minimum window size
-        
+        self.root.minsize(900, 720)
+        self._apply_initial_window_geometry(1120, 1040)
+        self.root.bind_all("<Control-q>", self._on_hotkey_stop)
+        self.root.bind_all("<Control-Q>", self._on_hotkey_stop)
+
         # Bot status
         self.bot_running = False
         self.bot_thread = None
-        self.skill_delay = 0.15
-        self.mob_delay = 0.2
+        self.skill_delay = 0.03
+        self.mob_delay = 0.018
         self.skills = ['1', '2', '3', '4']
+        self.buff_mode = False
+        self.buff_interval_s = 30 * 60
+        self.buff_repeat_12 = False
+        self._buff_slot_delays = [1.2, 1.2, 1.2, 1.2, 1.2]
+        self._buff_cast_gap_default = 1.2
+        self._last_buff_time = 0.0
         self.keypress_only_mode = False  # Start in template detection mode by default
         self.input_method = "auto"  # auto, sendinput, pydirectinput, keyboard
-        self.active_template_filter = set()  # Normalized target template names
-        
-        # Buff system
-        self.buff_keys = ['F2']  # Default: F2 for buffs
-        self.buff_interval = 1800  # 30 minutes in seconds (1800 seconds)
-        self.last_buff_time = 0  # Track last buff activation time
-        self.buff_enabled = True  # Enable/disable buff system
+        self.target_monster_names = []
 
         # Auto TAB system
         self.auto_tab_enabled = True
         self.auto_tab_interval = 15  # seconds
         self.last_auto_tab_time = 0
         
-        # Hunt region for OCR-based detection
-        self.hunt_region = None  # Hunt region (x, y, width, height)
+        # Hunt region (manual rect or game window client area)
+        self.hunt_region = None  # (x, y, width, height) screen coords
+        self.hunt_source = "none"  # "window" | "manual" | "none"
+        self.hunt_window_hwnd = None
+        self.hunt_window_title = ""
         self.click_points = []  # Pre-calculated click points in region
         self.current_click_index = 0  # Current point index
         
-        # Detection Mode
-        self.detection_mode = "template"  # Template matching mode only
-        self.monster_templates = {}  # {monster_name: cv2_image}
-        self.template_threshold = 0.4  # Minimum match confidence (lowered for better detection)
+        self.monster_templates = {}  # {monster_name: {color, gray, width, height}}
+        self.template_threshold = 0.16  # template match minimum score
         self.template_debug = True  # Show all match scores for debugging
-        self.target_click_cooldown = 2.5  # Ignore same target/position briefly after click
-        self.target_position_tolerance = 55  # Pixel tolerance for "same target"
+        self.template_scales = [0.80, 0.90, 1.00, 1.10, 1.20]
+        self.template_scales_advanced = [0.76, 0.84, 0.92, 1.00, 1.08, 1.16, 1.24]
+        self.advanced_vision_match = True
+        self._clahe = None  # lazy: cv2.createCLAHE
+        self.no_detection_count = 0
+        self.last_no_detection_log_time = 0
+        # After a click, ignore same monster near same hunt-relative spot (dead body / nameplate linger).
+        # Too long = visible pause while the template still matches the corpse; too short = double-tap dead mob.
+        self.target_click_cooldown = 1.05
+        self.target_position_tolerance = 72  # Pixel tolerance for "same target"
+        self.reclick_lockout_s = 2.5  # Screen: block another ground click near last hit for this long
+        self.reclick_screen_tolerance_px = 128  # Pixels (screen) — same "spot" radius
+        self._no_reclick_screen_until = 0.0
+        self._last_attack_click_screen = None  # (sx, sy) last successful target click
+        self._last_skip_click_log = 0.0
         self.recent_target_clicks = []
         self.last_cooldown_log_time = 0
-        
-        # Load monster templates from folder
-        self.load_monster_templates()
+        self.template_loc_agreement_px = 38
+        self._last_window_invalid_log = 0.0
+        self._printwindow_fallback_logged = False
         
         # Statistics
         self.start_time = None
-        
+        self._gui_photo_refs = []
+        self._icon_cache = {}
+
         self.setup_ui()
-    
+
+    def _apply_initial_window_geometry(self, width, height):
+        """Set default size and center on the primary monitor."""
+        try:
+            sw = int(self.root.winfo_screenwidth())
+            sh = int(self.root.winfo_screenheight())
+            x = max(0, (sw - width) // 2)
+            y = max(0, (sh - height) // 2)
+            self.root.geometry(f"{width}x{height}+{x}+{y}")
+        except tk.TclError:
+            self.root.geometry(f"{width}x{height}")
+
     def show_language_selection(self):
         """Show language selection dialog on first launch."""
+        d_bg = "#f4f6fa"
+        d_panel = "#ffffff"
+        d_accent = "#b45309"
+        d_border = "#e2e8f0"
         dialog = tk.Toplevel(self.root)
         dialog.title("Language Selection / Dil Seçimi")
-        dialog.geometry("350x180")
+        dialog.geometry("380x220")
+        dialog.configure(bg=d_bg)
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        ttk.Label(dialog, text="Select Language / Dil Seç", font=("Arial", 12, "bold")).pack(pady=15)
-        
+
+        outer = tk.Frame(dialog, bg=d_border, padx=1, pady=1)
+        outer.pack(fill=tk.BOTH, expand=True, padx=14, pady=14)
+        box = tk.Frame(outer, bg=d_panel, padx=22, pady=20)
+        box.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            box,
+            text="Select Language / Dil Seç",
+            font=("Segoe UI", 13, "bold"),
+            fg=d_accent,
+            bg=d_panel,
+        ).pack(pady=(0, 6))
+        tk.Label(
+            box,
+            text="Silkroad Vision Bot",
+            font=("Segoe UI", 9),
+            fg="#64748b",
+            bg=d_panel,
+        ).pack(pady=(0, 14))
+
         def select_lang(lang):
             save_language(lang)
             global CURRENT_LANGUAGE
             CURRENT_LANGUAGE = lang
             dialog.destroy()
-        
-        ttk.Button(dialog, text="🇹🇷 Türkçe", command=lambda: select_lang('TR'), width=25).pack(pady=5)
-        ttk.Button(dialog, text="🇬🇧 English", command=lambda: select_lang('EN'), width=25).pack(pady=5)
-        
+
+        def _btn(parent, text, cmd):
+            b = tk.Button(
+                parent,
+                text=text,
+                command=cmd,
+                font=("Segoe UI", 10, "bold"),
+                fg="#ffffff",
+                bg=d_accent,
+                activebackground="#d97706",
+                activeforeground="#ffffff",
+                relief=tk.FLAT,
+                padx=16,
+                pady=10,
+                cursor="hand2",
+                width=22,
+            )
+            b.pack(pady=5)
+            return b
+
+        _btn(box, "🇹🇷 Türkçe", lambda: select_lang("TR"))
+        _btn(box, "🇬🇧 English", lambda: select_lang("EN"))
+
         self.root.wait_window(dialog)
-        
+
+    def _on_ui_language_change(self, event=None):
+        sel = self.lang_var.get()
+        if sel not in LANGUAGES:
+            self.lang_var.set(CURRENT_LANGUAGE)
+            return
+        if sel == CURRENT_LANGUAGE:
+            return
+        if not messagebox.askyesno(
+            parent=self.root,
+            title=tr("language_restart_title"),
+            message=tr("language_restart_confirm"),
+        ):
+            self.lang_var.set(CURRENT_LANGUAGE)
+            return
+        prev = CURRENT_LANGUAGE
+        save_language(sel)
+        try:
+            subprocess.Popen([sys.executable, *sys.argv])
+        except Exception:
+            save_language(prev)
+            self.lang_var.set(prev)
+            messagebox.showerror(
+                parent=self.root,
+                title="Error",
+                message="Could not restart. Please close and open the app manually.",
+            )
+            return
+        self.root.destroy()
+
+    def _help_youtube_watch_url(self):
+        vid = (HELP_YOUTUBE_VIDEO_ID or "").strip()
+        if not vid:
+            return ""
+        return f"https://www.youtube.com/watch?v={vid}"
+
+    def _open_help_youtube(self):
+        url = self._help_youtube_watch_url()
+        if url:
+            webbrowser.open(url)
+
+    def _load_help_youtube_thumbnail_async(self):
+        vid = (HELP_YOUTUBE_VIDEO_ID or "").strip()
+        if not vid:
+            return
+
+        def worker():
+            try:
+                req = urllib.request.Request(
+                    f"https://img.youtube.com/vi/{vid}/hqdefault.jpg",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    data = resp.read()
+            except Exception:
+                return
+            self.root.after(0, lambda d=data: self._apply_help_youtube_thumb(d))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_help_youtube_thumb(self, jpeg_bytes):
+        if not jpeg_bytes:
+            return
+        try:
+            im = Image.open(io.BytesIO(jpeg_bytes))
+            im = im.convert("RGB")
+            max_w = 720
+            w, h = im.size
+            if w > max_w and w > 0:
+                r = max_w / float(w)
+                im = im.resize(
+                    (max(1, int(w * r)), max(1, int(h * r))),
+                    Image.Resampling.LANCZOS,
+                )
+            self._help_thumb_photo = ImageTk.PhotoImage(im)
+        except Exception:
+            return
+        lbl = getattr(self, "_help_thumb_label", None)
+        if lbl is None:
+            return
+        lbl.configure(image=self._help_thumb_photo)
+        lbl.pack(anchor=tk.W, pady=(8, 6))
+
+    def _load_header_logo_asset(self, max_height=118):
+        """Load Silkroad Online logo from assets/ for the header; keep aspect ratio."""
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "sro_logo.png")
+        if not os.path.isfile(path):
+            return None
+        try:
+            im = Image.open(path)
+            if im.mode not in ("RGBA", "RGB"):
+                im = im.convert("RGBA")
+            w, h = im.size
+            if h > max_height and h > 0:
+                r = max_height / float(h)
+                im = im.resize(
+                    (max(1, int(w * r)), max(1, int(h * r))),
+                    Image.Resampling.LANCZOS,
+                )
+            return ImageTk.PhotoImage(im)
+        except Exception:
+            return None
+
+    def _get_action_icon(self, name, size=18, recolor_rgb=None):
+        """Load assets/icons/{name}.png, resize, optional monochrome tint. Cached."""
+        key = (name, int(size), recolor_rgb)
+        if key in self._icon_cache:
+            return self._icon_cache[key]
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "assets", "icons", f"{name}.png"
+        )
+        if not os.path.isfile(path):
+            self._icon_cache[key] = None
+            return None
+        try:
+            im = Image.open(path).convert("RGBA")
+            im = im.resize((size, size), Image.Resampling.LANCZOS)
+            if recolor_rgb:
+                arr = np.asarray(im, dtype=np.uint8).copy()
+                mask = arr[:, :, 3] > 8
+                arr[mask, 0] = recolor_rgb[0]
+                arr[mask, 1] = recolor_rgb[1]
+                arr[mask, 2] = recolor_rgb[2]
+                im = Image.fromarray(arr, mode="RGBA")
+            ph = ImageTk.PhotoImage(im)
+            self._gui_photo_refs.append(ph)
+            self._icon_cache[key] = ph
+            return ph
+        except Exception:
+            self._icon_cache[key] = None
+            return None
+
+    def _btn_icon_opts(self, name, size=18, recolor_rgb=None):
+        img = self._get_action_icon(name, size, recolor_rgb)
+        if img:
+            return {"image": img, "compound": tk.LEFT}
+        return {}
+
     def setup_ui(self):
-        # Configure ttk style for modern look
         style = ttk.Style()
-        style.theme_use('clam')
-        
-        # Define color scheme (Modern Dark Blue Theme)
-        bg_color = "#f0f2f5"
-        fg_color = "#1a1a1a"
-        accent_color = "#1e90ff"  # Dodger Blue
-        hover_color = "#4169e1"
-        border_color = "#e0e0e0"
-        
-        # Configure style
-        style.configure('TFrame', background=bg_color)
-        style.configure('TLabel', background=bg_color, foreground=fg_color)
-        style.configure('TLabelframe', background=bg_color, foreground=fg_color, borderwidth=2)
-        style.configure('TLabelframe.Label', background=bg_color, foreground=accent_color, font=("Segoe UI", 10, "bold"))
-        style.configure('TButton', font=("Segoe UI", 9), padding=5)
-        style.map('TButton',
-                  background=[('active', hover_color)])
-        style.configure('Title.TLabel', font=("Segoe UI", 24, "bold"), foreground=accent_color)
-        style.configure('Subtitle.TLabel', font=("Segoe UI", 11, "bold"), foreground=accent_color)
-        style.configure('Info.TLabel', font=("Segoe UI", 8), foreground="#666666")
-        
-        # Create canvas and scrollbar for scrollable content
-        main_bg = tk.Canvas(self.root, bg=bg_color, highlightthickness=0)
+        style.theme_use("clam")
+
+        # Light mode — clean paper, warm amber + teal accents
+        bg_canvas = "#e2e8f0"
+        bg_panel = "#ffffff"
+        bg_inset = "#f8fafc"
+        fg_color = "#1e293b"
+        fg_muted = "#64748b"
+        accent_gold = "#b45309"
+        accent_jade = "#0d9488"
+        border_line = "#cbd5e1"
+        btn_hover = "#e2e8f0"
+        danger_bg = "#fee2e2"
+        danger_fg = "#991b1b"
+        ico_slate = (30, 41, 59)
+        ico_white = (255, 255, 255)
+        ico_danger = (153, 27, 27)
+
+        self.root.configure(bg=bg_canvas)
+
+        style.configure("TFrame", background=bg_panel)
+        style.configure("TLabel", background=bg_panel, foreground=fg_color)
+        style.configure(
+            "TLabelframe",
+            background=bg_panel,
+            foreground=fg_color,
+            borderwidth=1,
+            relief="solid",
+            bordercolor=border_line,
+        )
+        style.configure(
+            "TLabelframe.Label",
+            background=bg_panel,
+            foreground=accent_gold,
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.configure(
+            "TButton",
+            font=("Segoe UI", 9),
+            padding=(14, 8),
+            background=bg_inset,
+            foreground=fg_color,
+            borderwidth=1,
+            bordercolor=border_line,
+            focuscolor="none",
+        )
+        style.map(
+            "TButton",
+            background=[("active", btn_hover), ("disabled", bg_inset)],
+            foreground=[("disabled", fg_muted)],
+        )
+        style.configure(
+            "Accent.TButton",
+            font=("Segoe UI", 10, "bold"),
+            padding=(18, 10),
+            background="#d97706",
+            foreground="#ffffff",
+            borderwidth=0,
+            focuscolor="none",
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#ea580c"), ("disabled", "#cbd5e1")],
+            foreground=[("disabled", "#94a3b8")],
+        )
+        style.configure(
+            "Danger.TButton",
+            font=("Segoe UI", 10, "bold"),
+            padding=(18, 10),
+            background=danger_bg,
+            foreground=danger_fg,
+            borderwidth=1,
+            bordercolor="#fecaca",
+            focuscolor="none",
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#fecaca"), ("disabled", bg_inset)],
+            foreground=[("disabled", fg_muted)],
+        )
+        style.configure(
+            "Title.TLabel",
+            font=("Segoe UI", 22, "bold"),
+            foreground=accent_gold,
+            background=bg_panel,
+        )
+        style.configure(
+            "Subtitle.TLabel",
+            font=("Segoe UI", 11),
+            foreground=accent_jade,
+            background=bg_panel,
+        )
+        style.configure(
+            "Info.TLabel",
+            font=("Segoe UI", 8),
+            foreground=fg_muted,
+            background=bg_panel,
+        )
+        style.configure(
+            "TCheckbutton",
+            background=bg_panel,
+            foreground=fg_color,
+            focuscolor="none",
+        )
+        style.map("TCheckbutton", background=[("active", bg_panel)])
+        style.configure(
+            "TEntry",
+            fieldbackground=bg_inset,
+            foreground=fg_color,
+            insertcolor=accent_jade,
+            bordercolor=border_line,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=bg_inset,
+            foreground=fg_color,
+            insertcolor=fg_color,
+            bordercolor=border_line,
+            arrowcolor=accent_gold,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", bg_inset)],
+            selectbackground=[("readonly", bg_inset)],
+        )
+        style.configure(
+            "Horizontal.TScale",
+            background=bg_panel,
+            troughcolor=bg_inset,
+            bordercolor=border_line,
+        )
+        style.configure(
+            "Vertical.TScrollbar",
+            background=bg_inset,
+            troughcolor=bg_canvas,
+            bordercolor=bg_canvas,
+            arrowcolor=bg_inset,
+        )
+        style.configure("TSeparator", background=border_line)
+        style.configure("TNotebook", background=bg_panel, borderwidth=0)
+        style.configure(
+            "TNotebook.Tab",
+            background=bg_inset,
+            foreground=fg_color,
+            padding=(12, 6),
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", bg_panel)],
+            expand=[("selected", [1, 1, 1, 0])],
+        )
+
+        main_bg = tk.Canvas(self.root, bg=bg_canvas, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=main_bg.yview)
         scrollable_frame = ttk.Frame(main_bg)
-        
+
         scrollable_frame.bind(
             "<Configure>",
-            lambda e: main_bg.configure(scrollregion=main_bg.bbox("all"))
+            lambda e: main_bg.configure(scrollregion=main_bg.bbox("all")),
         )
-        
-        main_bg.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        _scroll_win = main_bg.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def _sync_scroll_width(event):
+            main_bg.itemconfig(_scroll_win, width=max(1, event.width))
+
+        main_bg.bind("<Configure>", _sync_scroll_width)
         main_bg.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack canvas and scrollbar
+
         main_bg.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        
-        # Enable mousewheel scrolling
+
         def _on_mousewheel(event):
-            main_bg.yview_scroll(int(-1*(event.delta/120)), "units")
+            main_bg.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
         main_bg.bind_all("<MouseWheel>", _on_mousewheel)
-        
-        # Main frame
-        main_frame = ttk.Frame(scrollable_frame, padding="15")
+
+        scrollable_frame.columnconfigure(0, weight=1)
+
+        main_frame = ttk.Frame(scrollable_frame, padding="20")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # ============ HEADER ============
-        header_frame = ttk.Frame(main_frame)
-        header_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 15))
-        
-        title_label = ttk.Label(header_frame, text="🎮 SILKROAD VISION BOT", style='Title.TLabel')
-        title_label.pack(pady=5)
-        
-        subtitle_label = ttk.Label(header_frame, text="Auto Hunter & Buff Manager", style='Subtitle.TLabel')
-        subtitle_label.pack()
-        
-        sep1 = ttk.Separator(header_frame, orient='horizontal')
-        sep1.pack(fill='x', pady=10)
-        
-        # GitHub info
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=2)
+
+        wrap_tab = 820
+
+        # HEADER (language + logo + credits)
+        header_wrap = ttk.Frame(main_frame)
+        header_wrap.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 14))
+        header_frame = tk.Frame(header_wrap, bg=bg_panel, padx=12)
+        header_frame.pack(fill=tk.X, pady=(14, 10))
+
+        lang_row = tk.Frame(header_frame, bg=bg_panel)
+        lang_row.pack(fill=tk.X, pady=(0, 6))
+        lang_inner = tk.Frame(lang_row, bg=bg_panel)
+        lang_inner.pack(side=tk.RIGHT)
+        ttk.Label(lang_inner, text=tr("language_label"), style="Info.TLabel").pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        self.lang_var = tk.StringVar(value=CURRENT_LANGUAGE)
+        lang_cb = ttk.Combobox(
+            lang_inner,
+            textvariable=self.lang_var,
+            values=["TR", "EN"],
+            state="readonly",
+            width=5,
+        )
+        lang_cb.pack(side=tk.LEFT)
+        lang_cb.bind("<<ComboboxSelected>>", self._on_ui_language_change)
+
+        self._header_logo_photo = self._load_header_logo_asset(max_height=120)
+        if self._header_logo_photo:
+            tk.Label(
+                header_frame,
+                image=self._header_logo_photo,
+                bg=bg_panel,
+                bd=0,
+                highlightthickness=0,
+            ).pack(pady=(0, 4))
+        else:
+            ttk.Label(header_frame, text="SILKROAD VISION BOT", style="Title.TLabel").pack()
+
+        ttk.Label(
+            header_frame,
+            text="◆  Auto Hunter  ·  Template · Vision  ◆",
+            style="Subtitle.TLabel",
+        ).pack(pady=(6, 2))
         github_frame = ttk.Frame(header_frame)
-        github_frame.pack(pady=5)
-        ttk.Label(github_frame, text="👨‍💻 Developed by: Samet UCA", style='Info.TLabel').pack()
-        ttk.Label(github_frame, text="📍 GitHub: github.com/SametUCA", style='Info.TLabel', foreground=accent_color).pack()
-        
-        # ============ STATUS PANEL ============
-        status_frame = ttk.LabelFrame(main_frame, text="📊 Status", padding="12")
-        status_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
-        
-        self.status_label = ttk.Label(status_frame, text="⭕ " + tr("stopped"), font=("Segoe UI", 12, "bold"), foreground="red")
-        self.status_label.pack(pady=8)
-        
-        stats_frame = ttk.Frame(status_frame)
-        stats_frame.pack(fill='x', pady=5)
-        
-        self.time_label = ttk.Label(stats_frame, text="Running Time: 00:00:00", font=("Segoe UI", 10))
-        self.time_label.pack(padx=10)
-        
-        # ============ SETTINGS PANEL ============
-        settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Settings", padding="12")
-        settings_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
-        
-        # Skill delay setting
-        ttk.Label(settings_frame, text=tr("skill_interval")).grid(row=0, column=0, sticky=tk.W, pady=6)
-        self.skill_delay_var = tk.DoubleVar(value=0.15)
-        skill_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=1.0, variable=self.skill_delay_var,
-                                      orient=tk.HORIZONTAL, length=200, command=self.update_skill_delay)
-        skill_delay_slider.grid(row=0, column=1, padx=8, sticky='ew')
-        self.skill_delay_label = ttk.Label(settings_frame, text="0.15 s", width=8)
-        self.skill_delay_label.grid(row=0, column=2, padx=5)
-        
-        # Mob delay setting
-        ttk.Label(settings_frame, text=tr("mob_interval")).grid(row=1, column=0, sticky=tk.W, pady=6)
-        self.mob_delay_var = tk.DoubleVar(value=0.2)
-        mob_delay_slider = ttk.Scale(settings_frame, from_=0.1, to=2.0, variable=self.mob_delay_var,
-                                    orient=tk.HORIZONTAL, length=200, command=self.update_mob_delay)
-        mob_delay_slider.grid(row=1, column=1, padx=8, sticky='ew')
-        self.mob_delay_label = ttk.Label(settings_frame, text="0.20 s", width=8)
-        self.mob_delay_label.grid(row=1, column=2, padx=5)
-        
-        # Skill keys
-        ttk.Label(settings_frame, text=tr("skill_keys")).grid(row=2, column=0, sticky=tk.W, pady=6)
-        self.skills_entry = ttk.Entry(settings_frame, width=15)
-        self.skills_entry.insert(0, "1,2,3,4")
-        self.skills_entry.grid(row=2, column=1, padx=8, sticky=tk.W)
-        ttk.Label(settings_frame, text="(comma separated)", style='Info.TLabel').grid(row=2, column=2, sticky=tk.W, padx=5)
+        github_frame.pack(pady=(2, 0))
+        ttk.Label(github_frame, text="Developed by: Samet UCA", style="Info.TLabel").pack()
+        ttk.Label(
+            github_frame,
+            text="github.com/SametUCA",
+            style="Info.TLabel",
+            foreground=accent_jade,
+            cursor="hand2",
+        ).pack()
+        _email_lbl = ttk.Label(
+            github_frame,
+            text="sametuca@hotmail.com",
+            style="Info.TLabel",
+            foreground=accent_jade,
+            cursor="hand2",
+        )
+        _email_lbl.pack()
+        _email_lbl.bind(
+            "<Button-1>",
+            lambda _e: webbrowser.open("mailto:sametuca@hotmail.com"),
+        )
 
-        # Target monsters (optional)
-        ttk.Label(settings_frame, text=tr("target_monsters")).grid(row=3, column=0, sticky=tk.W, pady=6)
-        self.target_monsters_entry = ttk.Entry(settings_frame, width=28)
-        self.target_monsters_entry.grid(row=3, column=1, padx=8, sticky='ew')
-        ttk.Label(settings_frame, text="(optional: name1,name2)", style='Info.TLabel').grid(row=3, column=2, sticky=tk.W, padx=5)
-
-        # Keypress-only mode
+        # Shared toggles (status panel + steps need same BooleanVars)
+        self.zerk_mode_var = tk.BooleanVar(value=False)
         self.keypress_only_var = tk.BooleanVar(value=False)
+        self.auto_tab_enabled_var = tk.BooleanVar(value=True)
+
+        # ============ TABBED SETTINGS ============
+        self.main_notebook = ttk.Notebook(main_frame)
+        self.main_notebook.grid(
+            row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(6, 0)
+        )
+
+        tab_status = ttk.Frame(self.main_notebook, padding=10)
+        tab_scan = ttk.Frame(self.main_notebook, padding=10)
+        tab_monsters = ttk.Frame(self.main_notebook, padding=10)
+        tab_combat = ttk.Frame(self.main_notebook, padding=10)
+        tab_extra = ttk.Frame(self.main_notebook, padding=10)
+        tab_log = ttk.Frame(self.main_notebook, padding=10)
+        tab_help = ttk.Frame(self.main_notebook, padding=10)
+
+        self.main_notebook.add(tab_status, text=tr("ui_tab_status"))
+        self.main_notebook.add(tab_scan, text=tr("ui_tab_scan"))
+        self.main_notebook.add(tab_monsters, text=tr("ui_tab_monsters"))
+        self.main_notebook.add(tab_combat, text=tr("ui_tab_combat"))
+        self.main_notebook.add(tab_extra, text=tr("ui_tab_extra"))
+        self.main_notebook.add(tab_log, text=tr("ui_tab_log"))
+        self.main_notebook.add(tab_help, text=tr("ui_tab_help"))
+
+        log_frame = ttk.LabelFrame(tab_log, text=tr("log"), padding="12")
+        log_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.log_text = scrolledtext.ScrolledText(
+            log_frame,
+            height=16,
+            width=92,
+            font=("Consolas", 10),
+            bg="#f8fafc",
+            fg="#0f172a",
+            insertbackground=accent_jade,
+            selectbackground="#ccfbf1",
+            selectforeground=fg_color,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=border_line,
+            highlightcolor=accent_jade,
+        )
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+
+        help_frame = ttk.LabelFrame(tab_help, text=tr("help_title"), padding="12")
+        help_frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            help_frame,
+            text=tr("help_intro"),
+            wraplength=wrap_tab,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(0, 8))
+        _help_vid = (HELP_YOUTUBE_VIDEO_ID or "").strip()
+        open_btn = ttk.Button(
+            help_frame,
+            text=tr("help_open_youtube"),
+            command=self._open_help_youtube,
+        )
+        open_btn.pack(anchor=tk.W, pady=(0, 4))
+        if not _help_vid:
+            open_btn.state(["disabled"])
+            ttk.Label(
+                help_frame,
+                text=tr("help_no_video"),
+                wraplength=wrap_tab,
+                justify=tk.LEFT,
+            ).pack(anchor=tk.W, pady=(8, 0))
+        else:
+            self._help_thumb_label = tk.Label(help_frame, cursor="hand2", bd=0)
+            self._help_thumb_label.bind("<Button-1>", lambda e: self._open_help_youtube())
+            self._help_thumb_photo = None
+            self._load_help_youtube_thumbnail_async()
+
+        # ============ STATUS PANEL ============
+        status_frame = ttk.LabelFrame(tab_status, text=tr("status_panel_title"), padding="14")
+        status_frame.pack(fill=tk.BOTH, expand=True)
+        status_inner = ttk.Frame(status_frame)
+        status_inner.pack(fill=tk.BOTH, expand=True)
+
+        top_status = ttk.Frame(status_inner)
+        top_status.pack(fill=tk.X, pady=(0, 6))
+        self.status_label = ttk.Label(
+            top_status,
+            text="⭕ " + tr("stopped"),
+            font=("Segoe UI", 13, "bold"),
+            foreground="#dc2626",
+        )
+        self.status_label.pack(side=tk.LEFT, anchor=tk.W)
+        self.time_label = ttk.Label(
+            top_status,
+            text="Running Time: 00:00:00",
+            font=("Segoe UI", 10),
+            foreground=fg_muted,
+        )
+        self.time_label.pack(side=tk.RIGHT, anchor=tk.E, padx=(12, 0))
+
+        ttk.Separator(status_inner, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+
+        ttk.Label(
+            status_inner,
+            text=tr("status_modes_title"),
+            font=("Segoe UI", 10, "bold"),
+            foreground=accent_gold,
+        ).pack(anchor=tk.W)
+        self.status_modes_detail = tk.Text(
+            status_inner,
+            height=4,
+            font=("Consolas", 9),
+            bg="#f8fafc",
+            fg=fg_color,
+            insertwidth=0,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=border_line,
+            highlightcolor=accent_jade,
+            padx=8,
+            pady=8,
+            wrap=tk.WORD,
+            cursor="arrow",
+            takefocus=False,
+        )
+        for _tag, _opts in (
+            ("sm_ok", {"foreground": "#047857"}),
+            ("sm_err", {"foreground": "#b91c1c"}),
+            ("sm_zerk_on", {"foreground": "#b45309"}),
+            ("sm_muted", {"foreground": "#64748b"}),
+            ("sm_feat", {"foreground": "#0369a1"}),
+            ("sm_debug", {"foreground": "#6d28d9"}),
+            ("sm_info", {"foreground": "#475569"}),
+        ):
+            self.status_modes_detail.tag_configure(_tag, **_opts)
+        self.status_modes_detail.pack(anchor=tk.W, fill=tk.X, pady=(4, 8))
+
+        zerk_row = ttk.Frame(status_inner)
+        zerk_row.pack(fill=tk.X, pady=(0, 6))
+        ttk.Checkbutton(
+            zerk_row,
+            text=tr("status_zerk_check"),
+            variable=self.zerk_mode_var,
+            command=self.refresh_status_modes,
+        ).pack(anchor=tk.W)
+
+        ttk.Separator(status_inner, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+        ttk.Label(
+            status_inner,
+            text=tr("wf_quick_start"),
+            style="Info.TLabel",
+            font=("Segoe UI", 9),
+            wraplength=wrap_tab,
+        ).pack(anchor=tk.W, pady=(0, 2))
+
+        # ============ STEP 1 — Scan area ============
+        step1 = ttk.LabelFrame(tab_scan, text=tr("wf_step1_title"), padding="12")
+        step1.pack(fill=tk.X, expand=False)
+        step1.columnconfigure(1, weight=1)
+        ttk.Label(step1, text=tr("wf_step1_hint"), style="Info.TLabel", wraplength=wrap_tab).grid(
+            row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 8)
+        )
+        hunt_btn_frame = ttk.Frame(step1)
+        hunt_btn_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=2)
+        hunt_btn_frame.columnconfigure(0, weight=1)
+        hunt_btn_frame.columnconfigure(1, weight=1)
+        self.select_window_button = ttk.Button(
+            hunt_btn_frame,
+            text=tr("select_game_window"),
+            command=self.select_game_window,
+            **self._btn_icon_opts("window", 18, ico_slate),
+        )
+        self.select_window_button.grid(row=0, column=0, padx=(0, 4), sticky="ew")
+        self.set_hunt_region_button = ttk.Button(
+            hunt_btn_frame,
+            text=tr("set_hunt_region"),
+            command=self.set_hunt_region,
+            **self._btn_icon_opts("region", 18, ico_slate),
+        )
+        self.set_hunt_region_button.grid(row=0, column=1, padx=(4, 0), sticky="ew")
+
+        # ============ STEP 2 — Names & template ============
+        step2 = ttk.LabelFrame(tab_monsters, text=tr("wf_step2_title"), padding="12")
+        step2.pack(fill=tk.BOTH, expand=True)
+        step2.columnconfigure(1, weight=1)
+        ttk.Label(step2, text=tr("wf_step2_hint"), style="Info.TLabel", wraplength=wrap_tab).grid(
+            row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 8)
+        )
+        self.save_template_button = ttk.Button(
+            step2,
+            text=tr("save_monster_template"),
+            command=self.open_monster_template_wizard,
+            **self._btn_icon_opts("template", 18, ico_slate),
+        )
+        self.save_template_button.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        ttk.Label(step2, text=tr("target_monsters")).grid(row=2, column=0, sticky=tk.W, pady=6)
+        self.target_monsters_entry = ttk.Entry(step2, width=28)
+        self.target_monsters_entry.insert(0, "Earth Ghost")
+        self.target_monsters_entry.grid(row=2, column=1, padx=8, sticky="ew")
+        ttk.Label(step2, text="(name1,name2)", style="Info.TLabel").grid(row=2, column=2, sticky=tk.W, padx=5)
+
+        # ============ STEP 3 — Skills ============
+        step3 = ttk.LabelFrame(tab_combat, text=tr("wf_step3_title"), padding="12")
+        step3.pack(fill=tk.BOTH, expand=True)
+        step3.columnconfigure(1, weight=1)
+        ttk.Label(step3, text=tr("wf_step3_hint"), style="Info.TLabel", wraplength=wrap_tab).grid(
+            row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 8)
+        )
         keypress_only_check = ttk.Checkbutton(
-            settings_frame,
+            step3,
             text=tr("keypress_only"),
             variable=self.keypress_only_var,
-            command=self.toggle_keypress_only_mode
+            command=self.toggle_keypress_only_mode,
         )
-        keypress_only_check.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=8)
+        keypress_only_check.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(0, 6))
+        ttk.Label(step3, text=tr("skill_keys")).grid(row=2, column=0, sticky=tk.W, pady=6)
+        self.skill_bar_slot_keys = ("1", "2", "3", "4", "5", "6", "7", "8")
+        self.skill_slot_vars = [tk.BooleanVar(value=(i < 4)) for i in range(8)]
+        skill_box_frame = ttk.Frame(step3)
+        skill_box_frame.grid(row=2, column=1, padx=8, sticky="w")
+        for idx, key in enumerate(self.skill_bar_slot_keys):
+            ttk.Checkbutton(
+                skill_box_frame,
+                text=key,
+                variable=self.skill_slot_vars[idx],
+            ).grid(row=0, column=idx, padx=(0, 4))
+        ttk.Label(step3, text=tr("skill_keys_hint"), style="Info.TLabel").grid(
+            row=2, column=2, sticky=tk.W, padx=5
+        )
+        ttk.Label(step3, text=tr("skill_interval")).grid(row=3, column=0, sticky=tk.W, pady=6)
+        self.skill_delay_var = tk.DoubleVar(value=0.03)
+        skill_delay_slider = ttk.Scale(
+            step3,
+            from_=0.0,
+            to=1.0,
+            variable=self.skill_delay_var,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self.update_skill_delay,
+        )
+        skill_delay_slider.grid(row=3, column=1, padx=8, sticky="ew")
+        self.skill_delay_label = ttk.Label(step3, text="0.03 s", width=8)
+        self.skill_delay_label.grid(row=3, column=2, padx=5)
+        ttk.Label(step3, text=tr("mob_interval")).grid(row=4, column=0, sticky=tk.W, pady=6)
+        self.mob_delay_var = tk.DoubleVar(value=0.018)
+        mob_delay_slider = ttk.Scale(
+            step3,
+            from_=0.0,
+            to=2.0,
+            variable=self.mob_delay_var,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self.update_mob_delay,
+        )
+        mob_delay_slider.grid(row=4, column=1, padx=8, sticky="ew")
+        self.mob_delay_label = ttk.Label(step3, text="0.02 s", width=8)
+        self.mob_delay_label.grid(row=4, column=2, padx=5)
+        self.update_skill_delay(self.skill_delay_var.get())
+        self.update_mob_delay(self.mob_delay_var.get())
 
-        # Input method selection
-        ttk.Label(settings_frame, text=tr("input_method")).grid(row=5, column=0, sticky=tk.W, pady=6)
+        self.buff_mode_var = tk.BooleanVar(value=False)
+        buff_mode_check = ttk.Checkbutton(
+            step3,
+            text=tr("buff_mode_toggle"),
+            variable=self.buff_mode_var,
+            command=self.refresh_status_modes,
+        )
+        buff_mode_check.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(8, 4))
+        ttk.Label(step3, text=tr("buff_interval")).grid(row=6, column=0, sticky=tk.W, pady=6)
+        self.buff_interval_var = tk.DoubleVar(value=30.0)
+        buff_interval_slider = ttk.Scale(
+            step3,
+            from_=5,
+            to=90,
+            variable=self.buff_interval_var,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self.update_buff_interval,
+        )
+        buff_interval_slider.grid(row=6, column=1, padx=8, sticky="ew")
+        self.buff_interval_label = ttk.Label(step3, text="30 dk", width=8)
+        self.buff_interval_label.grid(row=6, column=2, padx=5)
+        ttk.Label(step3, text=tr("buff_interval_hint"), style="Info.TLabel").grid(
+            row=7, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
+        )
+        ttk.Label(step3, text=tr("buff_cast_gap")).grid(row=8, column=0, sticky=tk.W, pady=6)
+        self.buff_cast_gap_var = tk.DoubleVar(value=1.2)
+        buff_cast_gap_slider = ttk.Scale(
+            step3,
+            from_=0.2,
+            to=12.0,
+            variable=self.buff_cast_gap_var,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self.update_buff_cast_gap,
+        )
+        buff_cast_gap_slider.grid(row=8, column=1, padx=8, sticky="ew")
+        self.buff_cast_gap_label = ttk.Label(step3, text="1.2 s", width=10)
+        self.buff_cast_gap_label.grid(row=8, column=2, padx=5)
+        ttk.Label(step3, text=tr("buff_cast_gap_hint"), style="Info.TLabel").grid(
+            row=9, column=0, columnspan=3, sticky=tk.W, pady=(0, 2)
+        )
+        ttk.Label(step3, text=tr("buff_slot_times"), style="Info.TLabel").grid(
+            row=10, column=0, columnspan=3, sticky=tk.W, pady=(6, 0)
+        )
+        self.buff_slot_delays_entry = ttk.Entry(step3, width=36)
+        self.buff_slot_delays_entry.grid(row=11, column=0, columnspan=3, sticky=tk.W, pady=2)
+        ttk.Label(step3, text=tr("buff_slot_times_hint"), style="Info.TLabel").grid(
+            row=12, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
+        )
+        self.buff_repeat_12_var = tk.BooleanVar(value=True)
+        buff_repeat_check = ttk.Checkbutton(
+            step3,
+            text=tr("buff_repeat_12"),
+            variable=self.buff_repeat_12_var,
+            command=self.refresh_status_modes,
+        )
+        buff_repeat_check.grid(row=13, column=0, columnspan=3, sticky=tk.W, pady=2)
+        self.update_buff_cast_gap(str(self.buff_cast_gap_var.get()))
+        self.buff_slot_delays_entry.bind("<KeyRelease>", lambda _e: self.refresh_status_modes())
+
+        # ============ STEP 4 — Extras ============
+        step4 = ttk.LabelFrame(tab_extra, text=tr("wf_step4_title"), padding="12")
+        step4.pack(fill=tk.BOTH, expand=True)
+        step4.columnconfigure(1, weight=1)
+        ttk.Label(step4, text=tr("wf_step4_hint"), style="Info.TLabel", wraplength=wrap_tab).grid(
+            row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 8)
+        )
+        ttk.Label(step4, text=tr("input_method")).grid(row=1, column=0, sticky=tk.W, pady=6)
         self.input_method_var = tk.StringVar(value="Auto (Recommended)")
         self.input_method_combo = ttk.Combobox(
-            settings_frame,
+            step4,
             textvariable=self.input_method_var,
             state="readonly",
             width=30,
@@ -391,109 +1385,160 @@ class BotGUI:
                 "Auto (Recommended)",
                 "SendInput (Scan Code)",
                 "PyDirectInput",
-                "Keyboard Library"
-            ]
+                "Keyboard Library",
+            ],
         )
-        self.input_method_combo.grid(row=5, column=1, columnspan=2, sticky='ew', padx=8)
+        self.input_method_combo.grid(row=1, column=1, columnspan=2, sticky="ew", padx=8)
         self.input_method_combo.bind("<<ComboboxSelected>>", self.update_input_method)
-        
-        # Hunt Region button
-        self.set_hunt_region_button = ttk.Button(settings_frame, text="📍 " + tr("set_hunt_region"), 
-                                                 command=self.set_hunt_region)
-        self.set_hunt_region_button.grid(row=6, column=0, columnspan=3, pady=10, sticky='ew', padx=8)
-        
-        # Template threshold
-        ttk.Label(settings_frame, text=tr("template_threshold")).grid(row=7, column=0, sticky=tk.W, pady=6)
-        self.template_threshold_var = tk.DoubleVar(value=0.4)
-        template_threshold_slider = ttk.Scale(settings_frame, from_=0.1, to=0.9, variable=self.template_threshold_var,
-                                            orient=tk.HORIZONTAL, length=200, command=self.update_template_threshold)
-        template_threshold_slider.grid(row=7, column=1, padx=8, sticky='ew')
-        self.template_threshold_label = ttk.Label(settings_frame, text="0.40", width=8)
-        self.template_threshold_label.grid(row=7, column=2, padx=5)
-        ttk.Label(settings_frame, text=tr("threshold_hint"), style='Info.TLabel').grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(0, 5))
-
-        self.auto_tab_enabled_var = tk.BooleanVar(value=True)
         auto_tab_check = ttk.Checkbutton(
-            settings_frame,
+            step4,
             text=tr("auto_tab_toggle"),
             variable=self.auto_tab_enabled_var,
-            command=self.toggle_auto_tab
+            command=self.toggle_auto_tab,
         )
-        auto_tab_check.grid(row=8, column=0, columnspan=3, sticky=tk.W, pady=6)
-
-        ttk.Label(settings_frame, text=tr("auto_tab_interval")).grid(row=9, column=0, sticky=tk.W, pady=6)
+        auto_tab_check.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=6)
+        ttk.Label(step4, text=tr("auto_tab_interval")).grid(row=3, column=0, sticky=tk.W, pady=6)
         self.auto_tab_interval_var = tk.DoubleVar(value=15)
         auto_tab_slider = ttk.Scale(
-            settings_frame,
+            step4,
             from_=5,
             to=60,
             variable=self.auto_tab_interval_var,
             orient=tk.HORIZONTAL,
             length=200,
-            command=self.update_auto_tab_interval
+            command=self.update_auto_tab_interval,
         )
-        auto_tab_slider.grid(row=9, column=1, padx=8, sticky='ew')
-        self.auto_tab_interval_label = ttk.Label(settings_frame, text="15 sn", width=8)
-        self.auto_tab_interval_label.grid(row=9, column=2, padx=5)
-
-        # ============ BUFF SYSTEM ============
-        sep2 = ttk.Separator(settings_frame, orient='horizontal')
-        sep2.grid(row=10, column=0, columnspan=3, sticky='ew', pady=10)
-        
-        # Buff Keys
-        ttk.Label(settings_frame, text="⚡ Buff Keys:").grid(row=11, column=0, sticky=tk.W, pady=6)
-        self.buff_keys_entry = ttk.Entry(settings_frame, width=15)
-        self.buff_keys_entry.insert(0, "F2")
-        self.buff_keys_entry.grid(row=11, column=1, padx=8, sticky=tk.W)
-        ttk.Label(settings_frame, text="(keys for buffs)", style='Info.TLabel').grid(row=11, column=2, sticky=tk.W, padx=5)
-
-        # Buff Interval
-        ttk.Label(settings_frame, text="⏱️ Buff Interval (min):").grid(row=12, column=0, sticky=tk.W, pady=6)
-        self.buff_interval_var = tk.DoubleVar(value=30)
-        buff_interval_slider = ttk.Scale(settings_frame, from_=5, to=120, variable=self.buff_interval_var,
-                                        orient=tk.HORIZONTAL, length=200, command=self.update_buff_interval)
-        buff_interval_slider.grid(row=12, column=1, padx=8, sticky='ew')
-        self.buff_interval_label = ttk.Label(settings_frame, text="30 min", width=8)
-        self.buff_interval_label.grid(row=12, column=2, padx=5)
-
-        # Buff enabled checkbox
-        self.buff_enabled_var = tk.BooleanVar(value=True)
-        buff_enabled_check = ttk.Checkbutton(
-            settings_frame,
-            text="⚡ Buff Sistemini Aktif Et",
-            variable=self.buff_enabled_var,
-            command=self.toggle_buff_system
+        auto_tab_slider.grid(row=3, column=1, padx=8, sticky="ew")
+        self.auto_tab_interval_label = ttk.Label(step4, text="15 sn", width=8)
+        self.auto_tab_interval_label.grid(row=3, column=2, padx=5)
+        ttk.Label(step4, text=tr("reclick_lockout")).grid(row=4, column=0, sticky=tk.W, pady=6)
+        self.reclick_lockout_var = tk.DoubleVar(value=2.5)
+        reclick_slider = ttk.Scale(
+            step4,
+            from_=0.0,
+            to=12.0,
+            variable=self.reclick_lockout_var,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self.update_reclick_lockout,
         )
-        buff_enabled_check.grid(row=13, column=0, columnspan=3, sticky=tk.W, pady=8)
-
-        # Configure grid weight for better layout
-        settings_frame.columnconfigure(1, weight=1)
+        reclick_slider.grid(row=4, column=1, padx=8, sticky="ew")
+        self.reclick_lockout_label = ttk.Label(step4, text="2.5 sn", width=8)
+        self.reclick_lockout_label.grid(row=4, column=2, padx=5)
+        ttk.Label(step4, text=tr("reclick_hint"), style="Info.TLabel").grid(
+            row=5, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
+        )
 
         # ============ BUTTONS ============
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=3, column=0, columnspan=2, pady=15)
-        
-        self.start_button = ttk.Button(button_frame, text="▶️  START", command=self.start_bot, width=20)
-        self.start_button.pack(side='left', padx=8)
-        
-        self.stop_button = ttk.Button(button_frame, text="⏹️  STOP", command=self.stop_bot, 
-                                     width=20, state=tk.DISABLED)
-        self.stop_button.pack(side='left', padx=8)
-        
-        # ============ LOG PANEL ============
-        log_frame = ttk.LabelFrame(main_frame, text="📝 Log", padding="10")
-        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
-        
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=12, width=70, 
-                                                  font=("Consolas", 9), bg="#1e1e1e", fg="#00ff00")
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-        
+        button_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(14, 8))
+
+        self.start_button = ttk.Button(
+            button_frame,
+            text=tr("start"),
+            command=self.start_bot,
+            width=22,
+            style="Accent.TButton",
+            **self._btn_icon_opts("start", 20, ico_white),
+        )
+        self.start_button.pack(side="left", padx=8)
+
+        self.stop_button = ttk.Button(
+            button_frame,
+            text=tr("stop"),
+            command=self.stop_bot,
+            width=22,
+            state=tk.DISABLED,
+            style="Danger.TButton",
+            **self._btn_icon_opts("stop", 20, ico_danger),
+        )
+        self.stop_button.pack(side="left", padx=8)
+
         # ============ FOOTER ============
         footer_frame = ttk.Frame(main_frame)
-        footer_frame.grid(row=5, column=0, columnspan=2, pady=10)
-        ttk.Label(footer_frame, text="Press 'Q' to stop | © 2026 Samet UCA", 
-                  style='Info.TLabel').pack()
-        
+        footer_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(12, 4))
+        ttk.Label(
+            footer_frame,
+            text=tr("press_q") + "  ·  © 2026 Samet UCA",
+            style="Info.TLabel",
+        ).pack()
+
+        self.refresh_status_modes()
+
+    def refresh_status_modes(self):
+        """Update Status panel summary (zerk + hunt + toggles)."""
+        if not hasattr(self, "status_modes_detail"):
+            return
+        t = self.status_modes_detail
+        t.configure(state=tk.NORMAL)
+        t.delete("1.0", tk.END)
+
+        def add_line(text, tag=None):
+            if tag:
+                t.insert(tk.END, text + "\n", tag)
+            else:
+                t.insert(tk.END, text + "\n")
+
+        if getattr(self, "bot_running", False):
+            add_line("● " + tr("status_bot_running"), "sm_ok")
+        else:
+            add_line("○ " + tr("status_bot_idle"), "sm_err")
+
+        hs = getattr(self, "hunt_source", "none")
+        if hs == "window":
+            wt = (getattr(self, "hunt_window_title", None) or "").strip() or "—"
+            if len(wt) > 42:
+                wt = wt[:40] + "…"
+            add_line("· " + tr("status_hunt_window") + ": " + wt, "sm_ok")
+        elif hs == "manual":
+            add_line("· " + tr("status_hunt_manual"), "sm_ok")
+        else:
+            add_line("· " + tr("status_hunt_none"), "sm_err")
+
+        if self.zerk_mode_var.get():
+            add_line("· " + tr("status_zerk_line_on"), "sm_zerk_on")
+        else:
+            add_line("· " + tr("status_zerk_line_off"), "sm_muted")
+
+        if self.keypress_only_var.get():
+            add_line("· " + tr("status_mode_keypress"), "sm_feat")
+        else:
+            add_line("· " + tr("status_mode_template_png"), "sm_feat")
+        if self.auto_tab_enabled_var.get():
+            add_line("· " + tr("status_mode_auto_tab"), "sm_feat")
+
+        if hasattr(self, "input_method_var"):
+            im = self.input_method_var.get()
+            if im:
+                add_line("· " + tr("status_input") + ": " + im, "sm_info")
+
+        if getattr(self, "buff_mode_var", None) and self.buff_mode_var.get():
+            try:
+                mins = int(round(float(self.buff_interval_var.get())))
+            except (tk.TclError, TypeError, ValueError):
+                mins = 30
+            gap_u = 1.2
+            bgv = getattr(self, "buff_cast_gap_var", None)
+            if bgv is not None:
+                try:
+                    gap_u = float(bgv.get())
+                except (tk.TclError, TypeError, ValueError):
+                    gap_u = 1.2
+            gap_u = max(0.2, min(12.0, gap_u))
+            gap_txt = f"{gap_u:.1f}"
+            ent = getattr(self, "buff_slot_delays_entry", None)
+            if ent is not None and ent.get().strip():
+                gap_txt = gap_txt + "*"
+            add_line("· " + tr("status_buff_line").format(mins, gap_txt), "sm_ok")
+        elif getattr(self, "buff_mode_var", None):
+            add_line("· " + tr("status_buff_off"), "sm_muted")
+
+        try:
+            line_count = int(t.index("end-1c").split(".")[0])
+        except (tk.TclError, ValueError):
+            line_count = 1
+        t.configure(height=min(max(line_count, 2), 24), state=tk.DISABLED)
+
     def update_skill_delay(self, value):
         self.skill_delay = float(value)
         self.skill_delay_label.config(text=f"{self.skill_delay:.2f}")
@@ -501,16 +1546,62 @@ class BotGUI:
     def update_mob_delay(self, value):
         self.mob_delay = float(value)
         self.mob_delay_label.config(text=f"{self.mob_delay:.2f}")
-    
-    def update_ocr_speed(self):
-        self.ocr_speed_mode = self.ocr_speed_var.get()
-        speed_names = {"fast": "⚡ Fast", "normal": "⚖️ Normal", "accurate": "🎯 Accurate"}
-        self.log(f"OCR Speed: {speed_names.get(self.ocr_speed_mode, 'Unknown')}")
 
-    def update_template_threshold(self, value):
-        self.template_threshold = float(value)
-        self.template_threshold_label.config(text=f"{self.template_threshold:.2f}")
-        
+    def update_buff_interval(self, value):
+        try:
+            m = float(value)
+        except (TypeError, ValueError):
+            m = 30.0
+        m = max(5.0, min(90.0, m))
+        self.buff_interval_label.config(text=f"{int(round(m))} dk")
+        self.refresh_status_modes()
+
+    def update_buff_cast_gap(self, value):
+        try:
+            g = float(value)
+        except (TypeError, ValueError):
+            try:
+                g = float(self.buff_cast_gap_var.get())
+            except (tk.TclError, TypeError, ValueError):
+                g = 1.2
+        g = max(0.2, min(12.0, g))
+        self.buff_cast_gap_label.config(text=f"{g:.1f} sn")
+        self.refresh_status_modes()
+
+    @staticmethod
+    def _coerce_buff_slot_delays(raw, uniform):
+        """Parse optional 's1,s2,s3,s4,s5' delays (seconds after each F2-bar key)."""
+        u = max(0.15, min(15.0, float(uniform)))
+        if not (raw or "").strip():
+            return [u] * 5
+        parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+        nums = []
+        for p in parts:
+            try:
+                nums.append(max(0.05, float(p)))
+            except ValueError:
+                return [u] * 5
+        if len(nums) >= 5:
+            out = nums[:5]
+        elif len(nums) > 0:
+            out = nums + [nums[-1]] * (5 - len(nums))
+        else:
+            return [u] * 5
+        return [min(15.0, max(0.05, x)) for x in out]
+
+    def _parse_buff_slot_delays(self):
+        try:
+            u = float(self.buff_cast_gap_var.get())
+        except (tk.TclError, TypeError, ValueError):
+            u = 1.2
+        u = max(0.2, min(12.0, u))
+        raw = self.buff_slot_delays_entry.get().strip() if hasattr(self, "buff_slot_delays_entry") else ""
+        return BotGUI._coerce_buff_slot_delays(raw, u)
+
+    def update_reclick_lockout(self, value):
+        self.reclick_lockout_s = max(0.0, float(value))
+        self.reclick_lockout_label.config(text=f"{self.reclick_lockout_s:.1f} sn")
+
     def update_input_method(self, event=None):
         method_text = self.input_method_var.get()
         method_map = {
@@ -521,6 +1612,7 @@ class BotGUI:
         }
         self.input_method = method_map.get(method_text, "auto")
         self.log(f"⌨️ Input Method: {method_text}")
+        self.refresh_status_modes()
 
     def toggle_keypress_only_mode(self):
         self.keypress_only_mode = self.keypress_only_var.get()
@@ -528,15 +1620,9 @@ class BotGUI:
             self.log("⌨️ Sadece Tuş Vuruşu Modu: ON")
             self.log("   Canavar seçimi yapılmayacak")
         else:
-            self.log("🎯 Template Av Modu: ON")
-            self.log("   Monsters klasöründeki template'lerden canavar seçimi yapılacak")
+            self.log("🎯 Görüntü modu: ON (monsters/ PNG şablon)")
+        self.refresh_status_modes()
     
-    def update_buff_interval(self, value):
-        """Update buff interval in minutes and convert to seconds."""
-        minutes = float(value)
-        self.buff_interval = minutes * 60  # Convert to seconds
-        self.buff_interval_label.config(text=f"{minutes:.0f} dk")
-
     def update_auto_tab_interval(self, value):
         """Update auto TAB interval in seconds."""
         seconds = float(value)
@@ -550,16 +1636,352 @@ class BotGUI:
             self.log("⚔️ Auto TAB: ON")
         else:
             self.log("⚔️ Auto TAB: OFF")
-    
-    def toggle_buff_system(self):
-        """Enable/disable buff system."""
-        self.buff_enabled = self.buff_enabled_var.get()
-        if self.buff_enabled:
-            self.log("⚡ Buff Sistemi: AÇIK")
-            self.log(f"   Buff tuşları her {self.buff_interval/60:.0f} dakikada basılacak")
-        else:
-            self.log("⚡ Buff Sistemi: KAPALI")
-    
+        self.refresh_status_modes()
+
+    def _rebuild_click_points(self, x, y, w, h):
+        self.click_points = []
+        rows, cols = 6, 8
+        for row in range(rows):
+            for col in range(cols):
+                px = x + (w // (cols + 1)) * (col + 1)
+                py = y + (h // (rows + 1)) * (row + 1)
+                self.click_points.append((px, py))
+
+    def resolve_hunt_region(self):
+        """Current scan rectangle in screen coordinates, or None."""
+        if self.hunt_source == "window" and self.hunt_window_hwnd:
+            return _client_area_screen_rect(self.hunt_window_hwnd)
+        if self.hunt_region:
+            return self.hunt_region
+        return None
+
+    def _hunt_rel_from_screenshot(self, rel_x, rel_y, screenshot, client_w, client_h):
+        """Map detection coords (same space as PIL capture) to client-rect pixels for mouse."""
+        try:
+            sw, sh = screenshot.size
+        except Exception:
+            sw, sh = 0, 0
+        if sw <= 0 or sh <= 0 or client_w <= 0 or client_h <= 0:
+            return int(rel_x), int(rel_y)
+        if sw != client_w or sh != client_h:
+            if not getattr(self, "_hunt_scale_mismatch_logged", False):
+                self._hunt_scale_mismatch_logged = True
+                self.log(
+                    f"⚙️ Görüntü {sw}×{sh} ≠ tarama {client_w}×{client_h} px — "
+                    f"tıklama ölçekleniyor (DPI/ölçek uyumu)."
+                )
+            rel_x = rel_x * (client_w / float(sw))
+            rel_y = rel_y * (client_h / float(sh))
+        rx = int(round(rel_x))
+        ry = int(round(rel_y))
+        return max(0, min(client_w - 1, rx)), max(0, min(client_h - 1, ry))
+
+    def _capture_hunt_screenshot_pil(self):
+        """
+        PIL RGB image of the hunt area.
+        Window source: PrintWindow on the game HWND (other windows on top do not occlude pixels).
+        Manual region: screen grab (overlapping windows still appear in the crop).
+        """
+        try:
+            if self.hunt_source == "window" and self.hunt_window_hwnd:
+                im = _capture_hwnd_client_pil(self.hunt_window_hwnd)
+                if im is not None:
+                    arr = np.asarray(im, dtype=np.uint8)
+                    if arr.size > 0 and float(arr.mean()) > 2.5:
+                        return im
+                    reg = _client_area_screen_rect(self.hunt_window_hwnd)
+                    if reg:
+                        if not self._printwindow_fallback_logged:
+                            self.log(tr("window_capture_fallback_once"))
+                            self._printwindow_fallback_logged = True
+                        return pyautogui.screenshot(region=reg).convert("RGB")
+                    return None
+                reg = _client_area_screen_rect(self.hunt_window_hwnd)
+                if reg:
+                    if not self._printwindow_fallback_logged:
+                        self.log(tr("window_capture_fallback_once"))
+                        self._printwindow_fallback_logged = True
+                    return pyautogui.screenshot(region=reg).convert("RGB")
+                return None
+            reg = self.resolve_hunt_region()
+            if not reg:
+                return None
+            return pyautogui.screenshot(region=reg).convert("RGB")
+        except Exception:
+            return None
+
+    def select_game_window(self):
+        """Pick a top-level window; hunt region = its client area (updates while playing if window moves)."""
+        self._window_pick_entries = []
+
+        bg_main = "#f4f6fa"
+        bg_inset = "#ffffff"
+        fg_color = "#1e293b"
+        accent_teal = "#0d9488"
+        border_line = "#cbd5e1"
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(tr("window_pick_title"))
+        dialog.geometry("660x560")
+        dialog.minsize(540, 460)
+        dialog.resizable(True, True)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.configure(bg=bg_main)
+
+        hint = ttk.Label(dialog, text=tr("window_pick_hint"), wraplength=600)
+        hint.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(14, 8))
+
+        mid = ttk.Frame(dialog)
+        mid.pack(fill=tk.BOTH, expand=True)
+
+        action_row = ttk.Frame(mid)
+        btn_row = ttk.Frame(mid)
+        list_frame = ttk.Frame(mid)
+
+        sb = ttk.Scrollbar(list_frame)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        lb = tk.Listbox(
+            list_frame,
+            height=8,
+            yscrollcommand=sb.set,
+            font=("Segoe UI", 10),
+            bg=bg_inset,
+            fg=fg_color,
+            selectbackground=accent_teal,
+            selectforeground="#ffffff",
+            highlightthickness=1,
+            highlightbackground=border_line,
+            highlightcolor=accent_teal,
+            relief=tk.FLAT,
+            borderwidth=0,
+        )
+        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.config(command=lb.yview)
+
+        def refresh_list():
+            lb.delete(0, tk.END)
+            self._window_pick_entries = _enumerate_top_level_windows()
+            for _hwnd, title in self._window_pick_entries:
+                lb.insert(tk.END, title)
+
+        def confirm():
+            sel = lb.curselection()
+            if not sel:
+                self.log(tr("window_pick_none"))
+                return
+            hwnd, title = self._window_pick_entries[sel[0]]
+            r = _client_area_screen_rect(hwnd)
+            if not r:
+                self.log(tr("window_invalid"))
+                return
+            x, y, w, h = r
+            self.hunt_window_hwnd = hwnd
+            self.hunt_window_title = title
+            self.hunt_source = "window"
+            self.hunt_region = (x, y, w, h)
+            self._printwindow_fallback_logged = False
+            self._rebuild_click_points(x, y, w, h)
+            self.log(tr("window_selected").format(title, x, y, w, h))
+            self.log(tr("click_points").format(len(self.click_points)))
+            self.refresh_status_modes()
+            dialog.destroy()
+
+        def cancel_pick():
+            dialog.destroy()
+
+        dlg_ico = (30, 41, 59)
+        ttk.Button(
+            action_row,
+            text=tr("ok_start"),
+            command=confirm,
+            width=20,
+            **self._btn_icon_opts("ok", 16, dlg_ico),
+        ).pack(side=tk.LEFT, padx=6)
+        ttk.Button(
+            action_row,
+            text=tr("cancel"),
+            command=cancel_pick,
+            width=14,
+            **self._btn_icon_opts("cancel", 16, dlg_ico),
+        ).pack(side=tk.LEFT, padx=6)
+        ttk.Button(
+            btn_row,
+            text=tr("window_refresh"),
+            command=refresh_list,
+            **self._btn_icon_opts("refresh", 16, dlg_ico),
+        ).pack(side=tk.LEFT, padx=4)
+
+        # Reserve bottom rows first so the list never covers buttons (fixes clipped OK/Cancel).
+        action_row.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(6, 16))
+        btn_row.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(4, 8))
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=14, pady=(4, 8))
+
+        refresh_list()
+        lb.bind("<Double-Button-1>", lambda _e: confirm())
+
+    @staticmethod
+    def _sanitize_template_basename(name):
+        name = (name or "").strip()
+        if not name:
+            return None
+        for c in '\\/*?:"<>|':
+            name = name.replace(c, "")
+        name = "_".join(name.split())
+        if not name or name in (".", ".."):
+            return None
+        return name
+
+    def open_monster_template_wizard(self):
+        """Capture hunt area, pick crop + name, save to monsters/."""
+        reg = self.resolve_hunt_region()
+        if not reg:
+            self.log(tr("tpl_capture_fail"))
+            messagebox.showwarning(tr("tpl_wizard_title"), tr("tpl_capture_fail"), parent=self.root)
+            return
+
+        try:
+            shot = self._capture_hunt_screenshot_pil()
+            if shot is None:
+                self.log(f"❌ Görüntü alınamadı")
+                return
+            pil_img = shot.convert("RGB") if hasattr(shot, "convert") else Image.fromarray(np.array(shot)).convert("RGB")
+        except Exception as e:
+            self.log(f"❌ Görüntü alınamadı: {e}")
+            return
+
+        world_w, world_h = pil_img.size
+        max_dw, max_dh = 880, 560
+        scale = min(max_dw / world_w, max_dh / world_h, 1.0)
+        disp_w = max(1, int(world_w * scale))
+        disp_h = max(1, int(world_h * scale))
+        display_img = pil_img.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(tr("tpl_wizard_title"))
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.minsize(520, 400)
+
+        ttk.Label(dlg, text=tr("tpl_wizard_hint"), wraplength=860).pack(pady=(10, 6), padx=12)
+
+        body = ttk.Frame(dlg)
+        body.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+
+        photo = ImageTk.PhotoImage(display_img)
+        canvas = tk.Canvas(body, width=disp_w, height=disp_h, highlightthickness=1, highlightbackground="#888")
+        canvas.pack()
+        canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+        dlg._tpl_photo = photo
+
+        state = {"rect": None}
+        drag = {"active": False, "x": 0, "y": 0}
+        rect_draw = {"id": None}
+
+        def draw_rect_exc(l, t, r, b):
+            if rect_draw["id"] is not None:
+                canvas.delete(rect_draw["id"])
+                rect_draw["id"] = None
+            if l is None:
+                return
+            x1 = int(l * scale)
+            y1 = int(t * scale)
+            x2 = max(x1 + 1, int(r * scale))
+            y2 = max(y1 + 1, int(b * scale))
+            rect_draw["id"] = canvas.create_rectangle(
+                x1, y1, x2, y2, outline="#00ff00", width=2
+            )
+
+        def clamp_exc(l, t, r, b):
+            l = max(0, min(world_w - 1, l))
+            t = max(0, min(world_h - 1, t))
+            r = max(l + 1, min(world_w, r))
+            b = max(t + 1, min(world_h, b))
+            return l, t, r, b
+
+        def canvas_to_exc(cx1, cy1, cx2, cy2):
+            l = int(min(cx1, cx2) / scale)
+            t = int(min(cy1, cy2) / scale)
+            r = int(max(cx1, cx2) / scale) + 1
+            b = int(max(cy1, cy2) / scale) + 1
+            return clamp_exc(l, t, r, b)
+
+        def on_down(e):
+            drag["active"] = True
+            drag["x"], drag["y"] = e.x, e.y
+
+        def on_move(e):
+            if not drag["active"]:
+                return
+            l, t, r, b = canvas_to_exc(drag["x"], drag["y"], e.x, e.y)
+            draw_rect_exc(l, t, r, b)
+
+        def on_up(e):
+            if not drag["active"]:
+                return
+            drag["active"] = False
+            l, t, r, b = canvas_to_exc(drag["x"], drag["y"], e.x, e.y)
+            state["rect"] = (l, t, r, b)
+            draw_rect_exc(l, t, r, b)
+
+        canvas.bind("<ButtonPress-1>", on_down)
+        canvas.bind("<B1-Motion>", on_move)
+        canvas.bind("<ButtonRelease-1>", on_up)
+
+        bottom = ttk.Frame(dlg)
+        bottom.pack(fill=tk.X, pady=10, padx=12)
+        ttk.Label(bottom, text=tr("tpl_monster_name")).pack(anchor=tk.W)
+        name_var = tk.StringVar(value="")
+        name_entry = ttk.Entry(bottom, textvariable=name_var, width=50)
+        name_entry.pack(fill=tk.X, pady=(4, 8))
+
+        def do_save():
+            base = self._sanitize_template_basename(name_var.get())
+            if not base:
+                messagebox.showerror(tr("tpl_wizard_title"), tr("tpl_name_bad"), parent=dlg)
+                return
+            if not state["rect"]:
+                messagebox.showerror(tr("tpl_wizard_title"), tr("tpl_crop_small"), parent=dlg)
+                return
+            l, t, r, b = state["rect"]
+            if (r - l) < 4 or (b - t) < 4:
+                messagebox.showerror(tr("tpl_wizard_title"), tr("tpl_crop_small"), parent=dlg)
+                return
+            os.makedirs("monsters", exist_ok=True)
+            out_path = os.path.join("monsters", base + ".png")
+            if os.path.isfile(out_path):
+                if not messagebox.askyesno(
+                    tr("tpl_wizard_title"),
+                    tr("tpl_overwrite").format(base),
+                    parent=dlg,
+                ):
+                    return
+            try:
+                crop = pil_img.crop((l, t, r, b))
+                crop.save(out_path, "PNG")
+            except Exception as ex:
+                messagebox.showerror(tr("tpl_wizard_title"), str(ex), parent=dlg)
+                return
+            self.log(tr("tpl_saved").format(base))
+            self.load_monster_templates()
+            dlg.destroy()
+
+        row_btn = ttk.Frame(bottom)
+        row_btn.pack(fill=tk.X)
+        dlg_ico = (30, 41, 59)
+        ttk.Button(
+            row_btn,
+            text=tr("tpl_save_btn"),
+            command=do_save,
+            **self._btn_icon_opts("save", 16, dlg_ico),
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(
+            row_btn,
+            text=tr("cancel"),
+            command=dlg.destroy,
+            **self._btn_icon_opts("cancel", 16, dlg_ico),
+        ).pack(side=tk.LEFT)
+
     def set_hunt_region(self):
         """Let user select a hunt region by drawing on screen."""
         self.log("📍 Hunt Region Selection (Template-based Detection)")
@@ -570,16 +1992,24 @@ class BotGUI:
         # Create instruction dialog
         dialog = tk.Toplevel(self.root)
         dialog.title(tr("draw_region"))
-        dialog.geometry("500x280")
+        dialog.geometry("560x360")
+        dialog.minsize(480, 300)
+        dialog.resizable(True, True)
         dialog.transient(self.root)
-        
-        ttk.Label(dialog, text=tr("draw_region"), font=("Arial", 14, "bold")).pack(pady=10)
-        ttk.Label(dialog, text=tr("draw_instructions"), font=("Arial", 10, "bold")).pack(pady=5)
-        ttk.Label(dialog, text=tr("draw_step1"), font=("Arial", 9)).pack()
-        ttk.Label(dialog, text=tr("draw_step2"), font=("Arial", 9)).pack()
-        ttk.Label(dialog, text=tr("draw_step3"), font=("Arial", 9)).pack()
-        ttk.Label(dialog, text=tr("draw_step4"), font=("Arial", 9)).pack(pady=5)
-        
+
+        btn_bar = ttk.Frame(dialog)
+        btn_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(8, 16))
+
+        body = ttk.Frame(dialog)
+        body.pack(fill=tk.BOTH, expand=True, padx=14, pady=(12, 4))
+
+        ttk.Label(body, text=tr("draw_region"), font=("Segoe UI", 14, "bold")).pack(anchor=tk.W, pady=(0, 8))
+        ttk.Label(body, text=tr("draw_instructions"), font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(body, text=tr("draw_step1"), font=("Segoe UI", 9)).pack(anchor=tk.W)
+        ttk.Label(body, text=tr("draw_step2"), font=("Segoe UI", 9)).pack(anchor=tk.W)
+        ttk.Label(body, text=tr("draw_step3"), font=("Segoe UI", 9)).pack(anchor=tk.W)
+        ttk.Label(body, text=tr("draw_step4"), font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(0, 4))
+
         def start_selection():
             dialog.destroy()
             self.root.withdraw()  # Hide main window
@@ -645,30 +2075,35 @@ class BotGUI:
                 h = abs(y2 - y1)
                 
                 if w > 20 and h > 20:  # Minimum size
+                    self.hunt_source = "manual"
+                    self.hunt_window_hwnd = None
+                    self.hunt_window_title = ""
                     self.hunt_region = (x, y, w, h)
-                    
-                    # Generate click points in a dense grid pattern (8x6 = 48 points)
-                    self.click_points = []
-                    rows = 6
-                    cols = 8
-                    for row in range(rows):
-                        for col in range(cols):
-                            px = x + (w // (cols + 1)) * (col + 1)
-                            py = y + (h // (rows + 1)) * (row + 1)
-                            self.click_points.append((px, py))
-                    
+                    self._rebuild_click_points(x, y, w, h)
                     self.log(tr("hunt_region_set").format(x, y, w, h))
                     self.log(tr("click_points").format(len(self.click_points)))
+                    self.refresh_status_modes()
                 else:
                     self.log(tr("region_small"))
             else:
                 self.log(tr("selection_cancelled"))
-        
-        ttk.Button(dialog, text=tr("ok_start"), command=start_selection).pack(pady=15)
-        ttk.Button(dialog, text=tr("cancel"), command=lambda: [dialog.destroy(), self.log(tr("selection_cancelled"))]).pack()
 
-            
-    
+        dlg_ico = (30, 41, 59)
+        ttk.Button(
+            btn_bar,
+            text=tr("ok_start"),
+            command=start_selection,
+            width=22,
+            **self._btn_icon_opts("ok", 16, dlg_ico),
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(
+            btn_bar,
+            text=tr("cancel"),
+            command=lambda: (dialog.destroy(), self.log(tr("selection_cancelled"))),
+            width=14,
+            **self._btn_icon_opts("cancel", 16, dlg_ico),
+        ).pack(side=tk.LEFT)
+
     def log(self, message):
         if not hasattr(self, 'log_text'):
             return
@@ -679,68 +2114,77 @@ class BotGUI:
         
     def start_bot(self):
         # Get skill keys
-        skills_text = self.skills_entry.get().strip()
-        self.skills = [s.strip() for s in skills_text.split(',') if s.strip()]
+        self.skills = [
+            key
+            for key, var in zip(self.skill_bar_slot_keys, self.skill_slot_vars)
+            if var.get()
+        ]
         
         if not self.skills:
             self.log(tr("error_empty_skills"))
             return
+
+        try:
+            self.skill_delay = max(0.0, float(self.skill_delay_var.get()))
+        except (tk.TclError, TypeError, ValueError):
+            self.skill_delay = 0.03
+        try:
+            self.mob_delay = max(0.0, float(self.mob_delay_var.get()))
+        except (tk.TclError, TypeError, ValueError):
+            self.mob_delay = 0.018
+
+        self.keypress_only_mode = self.keypress_only_var.get()
+
+        self.buff_mode = self.buff_mode_var.get()
+        try:
+            bm = float(self.buff_interval_var.get())
+        except (tk.TclError, TypeError, ValueError):
+            bm = 30.0
+        self.buff_interval_s = max(60.0, min(5400.0, bm * 60.0))
+        self.buff_repeat_12 = self.buff_repeat_12_var.get()
+        self._buff_slot_delays = self._parse_buff_slot_delays()
+        self._last_buff_time = time.time()
         
-        # Get buff keys
-        buff_keys_text = self.buff_keys_entry.get().strip()
-        self.buff_keys = [s.strip() for s in buff_keys_text.split(',') if s.strip()]
-        self.buff_enabled = self.buff_enabled_var.get()
         self.auto_tab_enabled = self.auto_tab_enabled_var.get()
-        self.last_buff_time = time.time()  # Reset buff timer on start
         self.last_auto_tab_time = time.time()
+        self.advanced_vision_match = True
+        try:
+            self.reclick_lockout_s = max(0.0, float(self.reclick_lockout_var.get()))
+        except (tk.TclError, TypeError, ValueError):
+            self.reclick_lockout_s = 2.5
+        self._no_reclick_screen_until = 0.0
+        self._last_attack_click_screen = None
+        self._last_skip_click_log = 0.0
+
+        targets_text = self.target_monsters_entry.get().strip()
+        self.target_monster_names = [name.strip() for name in targets_text.split(',') if name.strip()]
         
         if not self.keypress_only_mode:
-            # Check hunt region
-            if not self.hunt_region:
+            reg = self.resolve_hunt_region()
+            if not reg:
                 self.log(tr("error_hunt_not_set"))
                 self.log(tr("error_click_button"))
                 return
 
-            # Template mode: check if templates are loaded
-            if not self.monster_templates:
-                self.log(tr("error_no_templates"))
-                self.log(tr("error_add_png"))
+            self.load_monster_templates()
+
+            if not self.target_monster_names and self.monster_templates:
+                self.target_monster_names = list(self.monster_templates.keys())
+                self.log(f"🎯 Target monsters otomatik dolduruldu: {', '.join(self.target_monster_names)}")
+
+            if not self.target_monster_names and not self.monster_templates:
+                self.log("❌ Aranacak canavar isimlerini gir (ör: mangyang,tigergirl)")
+                self.log("   veya monsters/ klasorune PNG template ekle")
                 return
-
-            # Optional target-monster filtering
-            targets_text = self.target_monsters_entry.get().strip()
-            requested_names = [name.strip() for name in targets_text.split(',') if name.strip()]
-            self.active_template_filter = set()
-
-            if requested_names:
-                available_templates = {
-                    self.normalize_monster_name(name): name
-                    for name in self.monster_templates.keys()
-                }
-                missing_names = []
-
-                for requested_name in requested_names:
-                    normalized_requested = self.normalize_monster_name(requested_name)
-                    if normalized_requested in available_templates:
-                        self.active_template_filter.add(normalized_requested)
-                    else:
-                        missing_names.append(requested_name)
-
-                if missing_names:
-                    self.log(f"⚠️ Template bulunamadı: {', '.join(missing_names)}")
-
-                if not self.active_template_filter:
-                    self.log("❌ Aranacak canavar isimleri eşleşmedi! monsters/ dosya adlarını kontrol et.")
-                    return
-            else:
-                self.active_template_filter = set()
         
+        self._hunt_scale_mismatch_logged = False
         self.bot_running = True
         self.start_time = time.time()
         
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
-        self.status_label.config(text="✅ " + tr("running"), foreground="green")
+        self.status_label.config(text="✅ " + tr("running"), foreground="#059669")
+        self.refresh_status_modes()
         
         self.log("=" * 60)
         self.log("🚀 BOT STARTED!")
@@ -749,29 +2193,32 @@ class BotGUI:
         if self.keypress_only_mode:
             self.log("⌨️ Mode: KEYPRESS ONLY")
             self.log("   Canavar seçimi yapılmadan skill döngüsü çalışacak")
-        elif self.detection_mode == "template":
-            x, y, w, h = self.hunt_region
-            self.log(f"📸 Mode: TEMPLATE DETECTION")
-            self.log(f"📍 Hunt Region: X={x}, Y={y}, W={w}, H={h}")
-            self.log(f"📊 Templates loaded: {len(self.monster_templates)}")
-            for monster in self.monster_templates.keys():
-                self.log(f"   ▶ {monster}")
-            if self.active_template_filter:
-                filtered_names = [
-                    name for name in self.monster_templates.keys()
-                    if self.normalize_monster_name(name) in self.active_template_filter
-                ]
-                self.log(f"🎯 Target monsters: {', '.join(filtered_names)}")
-            else:
-                self.log("🎯 Target monsters: ALL")
+        else:
+            rx, ry, rw, rh = self.resolve_hunt_region() or (0, 0, 0, 0)
+            self.log("🧠 Mode: PNG template detection")
+            self.log(f"📍 Hunt Region: X={rx}, Y={ry}, W={rw}, H={rh}")
+            if self.hunt_source == "window" and self.hunt_window_title:
+                self.log(f"   🪟 Kaynak: pencere — {self.hunt_window_title}")
+                self.log(tr("window_capture_printwindow_hint"))
+            self.log(f"🎯 Target filter: {', '.join(self.target_monster_names)}")
+            if self.monster_templates:
+                self.log(f"🖼️ Şablon: {len(self.monster_templates)} PNG | eşik {self.template_threshold:.2f}")
         
         self.log(f"🎯 Skill keys: {', '.join(self.skills)}")
         self.log(f"⌨️ Input method: {self.input_method_var.get()}")
         self.log(f"⚙️ Skill interval: {self.skill_delay}s")
         self.log(f"⚙️ Mob interval: {self.mob_delay}s")
-        self.log(f"🎨 Template threshold: {self.template_threshold:.2f}")
         self.log(f"⚔️ Auto TAB: {'ON' if self.auto_tab_enabled else 'OFF'}")
         self.log(f"⚔️ Auto TAB interval: {self.auto_tab_interval:.0f}s")
+        if self.buff_mode:
+            ds = ", ".join(f"{x:.2f}" for x in self._buff_slot_delays)
+            self.log(
+                f"✨ Buff mode: ON | interval: {self.buff_interval_s / 60:.0f} min | "
+                f"F2 bar wait after 1..5 (s): [{ds}] | "
+                f"extra 1-2: {'yes' if self.buff_repeat_12 else 'no'}"
+            )
+        if not self.keypress_only_mode:
+            self.log(f"🖱️ Aynı bölge tıklama kilidi: {self.reclick_lockout_s:.1f}s")
         self.log("=" * 60)
         
         # Start bot thread
@@ -781,13 +2228,20 @@ class BotGUI:
         # Start timer
         self.update_timer()
         
+    def _on_hotkey_stop(self, _event=None):
+        if self.bot_running:
+            self.stop_bot()
+
     def stop_bot(self):
+        was_running = self.bot_running
         self.bot_running = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
-        self.status_label.config(text="⭕ " + tr("stopped"), foreground="red")
-        self.log("🛑 Bot stopped!")
-        
+        self.status_label.config(text="⭕ " + tr("stopped"), foreground="#dc2626")
+        self.refresh_status_modes()
+        if was_running:
+            self.log("🛑 Bot stopped!")
+
     def update_timer(self):
         if self.bot_running and self.start_time:
             elapsed = int(time.time() - self.start_time)
@@ -796,39 +2250,6 @@ class BotGUI:
             seconds = elapsed % 60
             self.time_label.config(text=f"Running Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
             self.root.after(1000, self.update_timer)
-    
-    def text_similarity(self, s1, s2):
-        """Calculate similarity ratio between two strings using Levenshtein distance."""
-        if not s1 or not s2:
-            return 0.0
-        
-        # Normalize strings
-        s1 = s1.lower().strip()
-        s2 = s2.lower().strip()
-        
-        if s1 == s2:
-            return 1.0
-        
-        # Simple Levenshtein distance calculation
-        if len(s1) < len(s2):
-            s1, s2 = s2, s1
-        
-        if len(s2) == 0:
-            return 0.0
-        
-        previous_row = range(len(s2) + 1)
-        for i, c1 in enumerate(s1):
-            current_row = [i + 1]
-            for j, c2 in enumerate(s2):
-                insertions = previous_row[j + 1] + 1
-                deletions = current_row[j] + 1
-                substitutions = previous_row[j] + (c1 != c2)
-                current_row.append(min(insertions, deletions, substitutions))
-            previous_row = current_row
-        
-        distance = previous_row[-1]
-        max_len = max(len(s1), len(s2))
-        return 1.0 - (distance / max_len)
 
     def normalize_monster_name(self, name):
         """Normalize monster/template names for robust matching."""
@@ -881,7 +2302,21 @@ class BotGUI:
             'time': now,
         })
         self.cleanup_recent_target_clicks(now)
-        
+
+    def _should_block_repeat_ground_click(self, screen_x, screen_y, now=None):
+        """Block another left-click near the last target click while lockout is active (reduces walk-to-ground)."""
+        if now is None:
+            now = time.time()
+        if now >= self._no_reclick_screen_until:
+            return False
+        if self._last_attack_click_screen is None:
+            return False
+        lx, ly = self._last_attack_click_screen
+        t = self.reclick_screen_tolerance_px
+        dx = screen_x - lx
+        dy = screen_y - ly
+        return (dx * dx + dy * dy) <= (t * t)
+
     def load_monster_templates(self):
         """Load monster template images from monsters/ folder."""
         try:
@@ -895,12 +2330,36 @@ class BotGUI:
             for filename in monster_files:
                 filepath = os.path.join('monsters', filename)
                 try:
-                    img = cv2.imread(filepath, cv2.IMREAD_COLOR)
-                    if img is not None:
-                        # Use filename without .png as monster name
-                        monster_name = filename[:-4]  # Remove .png extension
-                        self.monster_templates[monster_name] = img
-                        self.log(f"✅ Template yüklendi: {monster_name}")
+                    raw = cv2.imread(filepath, cv2.IMREAD_UNCHANGED)
+                    if raw is None:
+                        continue
+                    mask = None
+                    if raw.ndim == 3 and raw.shape[2] == 4:
+                        bgr = raw[:, :, :3]
+                        a = raw[:, :, 3]
+                        if int(a.max()) > 0:
+                            mask = np.where(a > 128, 255, 0).astype(np.uint8)
+                        img = bgr
+                    elif raw.ndim == 2:
+                        img = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
+                    else:
+                        img = raw
+                    monster_name = filename[:-4]
+                    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                    h, w = gray_img.shape[:2]
+                    edges = cv2.Canny(gray_img, 50, 150)
+                    if mask is not None:
+                        edges = cv2.bitwise_and(edges, edges, mask=mask)
+                    self.monster_templates[monster_name] = {
+                        'color': img,
+                        'gray': gray_img,
+                        'edges': edges,
+                        'mask': mask,
+                        'width': w,
+                        'height': h,
+                    }
+                    tag = " + alpha" if mask is not None else ""
+                    self.log(f"✅ Template yüklendi: {monster_name}{tag}")
                 except Exception as e:
                     self.log(f"❌ Template yükleme hatası ({filename}): {e}")
             
@@ -911,69 +2370,277 @@ class BotGUI:
                 
         except Exception as e:
             self.log(f"❌ Monster templates yüklenirken hata: {e}")
-    
-    def detect_monster_template(self, screenshot, target_filter=None):
+
+    def _clahe_apply(self, gray):
+        if self._clahe is None:
+            self._clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        return self._clahe.apply(gray)
+
+    def _gray_match_scores(self, gray_scene, gray_tpl, mask_tpl, use_multi_metric):
+        """Best gray-channel match; returns (score, top_left_xy) or (0, None)."""
+        if gray_tpl.shape[0] > gray_scene.shape[0] or gray_tpl.shape[1] > gray_scene.shape[1]:
+            return 0.0, None
+        try:
+            if use_multi_metric and mask_tpl is not None:
+                corr = cv2.matchTemplate(gray_scene, gray_tpl, cv2.TM_CCORR_NORMED, mask=mask_tpl)
+                ccoeff = cv2.matchTemplate(gray_scene, gray_tpl, cv2.TM_CCOEFF_NORMED)
+                _, mv_corr, _, loc = cv2.minMaxLoc(corr)
+                x, y = loc[0], loc[1]
+                if 0 <= y < ccoeff.shape[0] and 0 <= x < ccoeff.shape[1]:
+                    v_ce = float(ccoeff[y, x])
+                else:
+                    v_ce = 0.0
+                score = 0.55 * float(mv_corr) + 0.45 * max(-1.0, min(1.0, v_ce))
+                return score, loc
+            if use_multi_metric and mask_tpl is None:
+                ccoeff = cv2.matchTemplate(gray_scene, gray_tpl, cv2.TM_CCOEFF_NORMED)
+                ccorr = cv2.matchTemplate(gray_scene, gray_tpl, cv2.TM_CCORR_NORMED)
+                blended = cv2.addWeighted(ccoeff, 0.52, ccorr, 0.48, 0)
+                _, score, _, loc = cv2.minMaxLoc(blended)
+                return float(score), loc
+            if mask_tpl is not None:
+                try:
+                    gray_result = cv2.matchTemplate(
+                        gray_scene, gray_tpl, cv2.TM_CCORR_NORMED, mask=mask_tpl
+                    )
+                except Exception:
+                    gray_result = cv2.matchTemplate(gray_scene, gray_tpl, cv2.TM_CCOEFF_NORMED)
+            else:
+                gray_result = cv2.matchTemplate(gray_scene, gray_tpl, cv2.TM_CCOEFF_NORMED)
+            _, score, _, loc = cv2.minMaxLoc(gray_result)
+            return float(score), loc
+        except Exception:
+            return 0.0, None
+
+    def _orb_template_hit(self, scene_gray, tpl_gray, tpl_mask=None):
+        """ORB + homography rough location; returns (cx, cy, conf01) or (None, None, 0)."""
+        if tpl_gray.shape[0] < 22 or tpl_gray.shape[1] < 22:
+            return None, None, 0.0
+        try:
+            orb = cv2.ORB_create(nfeatures=350, scaleFactor=1.2, edgeThreshold=10)
+            kp1, d1 = orb.detectAndCompute(tpl_gray, tpl_mask)
+            kp2, d2 = orb.detectAndCompute(scene_gray, None)
+            if d1 is None or d2 is None or len(kp1) < 10 or len(kp2) < 16:
+                return None, None, 0.0
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            matches = bf.match(d1, d2)
+            if len(matches) < 10:
+                return None, None, 0.0
+            matches = sorted(matches, key=lambda m: m.distance)
+            keep = min(80, max(12, int(len(matches) * 0.65)))
+            good = matches[:keep]
+            src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+            dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+            H, inlier_mask = cv2.findHomography(src, dst, cv2.RANSAC, 4.5, maxIters=2500)
+            if H is None or inlier_mask is None:
+                return None, None, 0.0
+            inliers = int(inlier_mask.ravel().sum())
+            if inliers < 7:
+                return None, None, 0.0
+            h0, w0 = tpl_gray.shape[:2]
+            corners = np.float32([[0, 0], [w0, 0], [w0, h0], [0, h0]]).reshape(-1, 1, 2)
+            proj = cv2.perspectiveTransform(corners, H)
+            cx = float(np.mean(proj[:, 0, 0]))
+            cy = float(np.mean(proj[:, 0, 1]))
+            md = float(np.mean([m.distance for m in good[: max(1, inliers)]]))
+            score = min(1.0, inliers / 20.0) * max(0.25, 1.0 - md / 75.0)
+            return cx, cy, score
+        except Exception:
+            return None, None, 0.0
+
+    def _orb_scan_templates(self, gray_work, thr):
+        """When classical template pass finds nothing, try ORB per monster."""
+        out = []
+        if not getattr(self, "advanced_vision_match", True) or not self.monster_templates:
+            return out
+        orb_floor = max(0.26, min(0.72, float(thr) * 0.62))
+        for monster_name, template_data in self.monster_templates.items():
+            try:
+                if self.target_monster_names:
+                    mn = self.normalize_monster_name(monster_name)
+                    allowed = False
+                    for t in self.target_monster_names:
+                        tn = self.normalize_monster_name(t)
+                        if not tn:
+                            continue
+                        if tn == mn or tn in mn or mn in tn:
+                            allowed = True
+                            break
+                    if not allowed:
+                        continue
+                g = template_data["gray"]
+                mk = template_data.get("mask")
+                tpl_g = self._clahe_apply(g)
+                tw, th = tpl_g.shape[1], tpl_g.shape[0]
+                cx, cy, sc = self._orb_template_hit(gray_work, tpl_g, mk)
+                if cx is None or sc < orb_floor:
+                    continue
+                tx = int(cx - tw // 2)
+                ty = int(cy - th // 2)
+                tx = max(0, min(gray_work.shape[1] - tw, tx))
+                ty = max(0, min(gray_work.shape[0] - th, ty))
+                mapped = min(0.92, sc * 1.05)
+                out.append((mapped, monster_name, tx, ty, tw, th))
+            except Exception:
+                continue
+        return out
+
+    def detect_monster_template(self, screenshot):
         """
-        Detect monster in screenshot using template matching.
-        Returns (monster_name, confidence, x, y) or (None, 0, 0, 0)
+        Detect monster using multi-scale template match (gray + edges), optional CLAHE,
+        blended correlation metrics, and ORB assist when classical match fails.
+        Returns (monster_name, confidence, center_x, center_y) or (None, 0, 0, 0)
         """
+        self._detect_cooldown_blocked_only = False
         if not self.monster_templates:
             return None, 0, 0, 0
-        
+
+        agree_sq = self.template_loc_agreement_px * self.template_loc_agreement_px
+        use_adv = getattr(self, "advanced_vision_match", True)
+        scales = self.template_scales_advanced if use_adv else self.template_scales
+        multi = use_adv
+
         try:
-            # Convert PIL image to OpenCV format
             img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
             gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            
+            edge_img = cv2.Canny(gray_img, 50, 150)
+
+            if use_adv:
+                gray_work = self._clahe_apply(gray_img)
+                edge_work = cv2.Canny(gray_work, 50, 150)
+            else:
+                gray_work = gray_img
+                edge_work = edge_img
+
             candidates = []
-            
-            # Try each template
-            for monster_name, template in self.monster_templates.items():
+            thr = float(self.template_threshold)
+
+            for monster_name, template_data in self.monster_templates.items():
                 try:
-                    if target_filter:
-                        normalized_name = self.normalize_monster_name(monster_name)
-                        if normalized_name not in target_filter:
+                    if self.target_monster_names:
+                        mn = self.normalize_monster_name(monster_name)
+                        allowed = False
+                        for t in self.target_monster_names:
+                            tn = self.normalize_monster_name(t)
+                            if not tn:
+                                continue
+                            if tn == mn or tn in mn or mn in tn:
+                                allowed = True
+                                break
+                        if not allowed:
+                            continue
+                    base_gray_template = template_data["gray"]
+                    base_edge_template = template_data["edges"]
+                    base_mask = template_data.get("mask")
+                    best_local = 0.0
+                    best_local_pos = None
+
+                    for scale in scales:
+                        if scale == 1.0:
+                            gray_resized = base_gray_template
+                            mask_template = base_mask
+                        else:
+                            new_w = max(8, int(base_gray_template.shape[1] * scale))
+                            new_h = max(8, int(base_gray_template.shape[0] * scale))
+                            gray_resized = cv2.resize(
+                                base_gray_template, (new_w, new_h), interpolation=cv2.INTER_AREA
+                            )
+                            if base_mask is not None:
+                                mask_template = cv2.resize(
+                                    base_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST
+                                )
+                            else:
+                                mask_template = None
+
+                        if use_adv:
+                            gray_template = self._clahe_apply(gray_resized)
+                            edge_template = cv2.Canny(gray_template, 50, 150)
+                            if mask_template is not None:
+                                edge_template = cv2.bitwise_and(
+                                    edge_template, edge_template, mask=mask_template
+                                )
+                        else:
+                            gray_template = gray_resized
+                            if scale == 1.0:
+                                edge_template = base_edge_template
+                            else:
+                                edge_template = cv2.resize(
+                                    base_edge_template,
+                                    (gray_resized.shape[1], gray_resized.shape[0]),
+                                    interpolation=cv2.INTER_AREA,
+                                )
+
+                        if (
+                            gray_template.shape[0] > gray_work.shape[0]
+                            or gray_template.shape[1] > gray_work.shape[1]
+                        ):
                             continue
 
-                    gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-                    
-                    # Check template is not bigger than image
-                    if gray_template.shape[0] > gray_img.shape[0] or gray_template.shape[1] > gray_img.shape[1]:
-                        if self.template_debug:
-                            self.log(f"⚠️ {monster_name}: Template çok büyük (template: {gray_template.shape}, img: {gray_img.shape})")
-                        continue
-                    
-                    # Use correlation matching
-                    result = cv2.matchTemplate(gray_img, gray_template, cv2.TM_CCOEFF_NORMED)
-                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-                    
-                    # Debug: show confidence score for all templates
-                    if self.template_debug and max_val > 0.2:
-                        self.log(f"📸 {monster_name}: Confidence = {max_val:.2f} (threshold: {self.template_threshold:.2f})")
-                    
-                    # max_val is the normalized correlation value (0-1)
-                    if max_val >= self.template_threshold:
-                        candidates.append((max_val, monster_name, max_loc[0], max_loc[1]))
-                        
+                        gray_max_val, gray_max_loc = self._gray_match_scores(
+                            gray_work, gray_template, mask_template, multi
+                        )
+                        if gray_max_loc is None:
+                            continue
+
+                        edge_result = cv2.matchTemplate(
+                            edge_work, edge_template, cv2.TM_CCOEFF_NORMED
+                        )
+                        _, edge_max_val, _, edge_max_loc = cv2.minMaxLoc(edge_result)
+
+                        dx = gray_max_loc[0] - edge_max_loc[0]
+                        dy = gray_max_loc[1] - edge_max_loc[1]
+                        combined_score = 0.5 * (gray_max_val + edge_max_val)
+                        if use_adv:
+                            if (dx * dx + dy * dy) > agree_sq:
+                                combined_score *= 0.58
+                            if gray_max_val < 0.38 or edge_max_val < 0.28:
+                                combined_score *= 0.82
+                        else:
+                            if (dx * dx + dy * dy) > agree_sq:
+                                combined_score *= 0.52
+                            if gray_max_val < 0.38 or edge_max_val < 0.28:
+                                combined_score *= 0.75
+
+                        best_loc = gray_max_loc
+                        if combined_score > best_local:
+                            best_local = combined_score
+                            best_local_pos = (
+                                best_loc[0],
+                                best_loc[1],
+                                gray_template.shape[1],
+                                gray_template.shape[0],
+                                scale,
+                            )
+
+                    if self.template_debug and best_local > 0.2:
+                        self.log(
+                            f"📸 {monster_name}: skor={best_local:.2f} (eşik {thr:.2f})"
+                        )
+
+                    if best_local_pos and best_local >= thr:
+                        best_x, best_y, scaled_w, scaled_h, _ = best_local_pos
+                        candidates.append((best_local, monster_name, best_x, best_y, scaled_w, scaled_h))
+
                 except Exception as e:
                     self.log(f"⚠️ Template eşleştirme hatası ({monster_name}): {e}")
                     continue
-            
+
+            if not candidates and use_adv:
+                for oc in self._orb_scan_templates(gray_work, thr):
+                    candidates.append(oc)
+                if candidates and self.template_debug:
+                    self.log("🔭 ORB yedeği aday üretti (klasik eşleşme zayıftı)")
+
             if not candidates:
+                self.no_detection_count += 1
                 return None, 0, 0, 0
 
-            # Highest confidence first; skip recently clicked same-position targets.
             candidates.sort(key=lambda item: item[0], reverse=True)
             now = time.time()
             self.cleanup_recent_target_clicks(now)
             skipped_recent = 0
 
-            for confidence, monster_name, template_x, template_y in candidates:
-                template = self.monster_templates.get(monster_name)
-                if template is None:
-                    continue
-
-                template_h, template_w = template.shape[:2]
+            for confidence, monster_name, template_x, template_y, template_w, template_h in candidates:
                 center_x = template_x + template_w // 2
                 center_y = template_y + template_h // 2
 
@@ -981,18 +2648,22 @@ class BotGUI:
                     skipped_recent += 1
                     continue
 
-                return monster_name, confidence, template_x, template_y
+                self.no_detection_count = 0
+                return monster_name, confidence, center_x, center_y
 
             if skipped_recent > 0 and now - self.last_cooldown_log_time > 1.5:
                 self.log(f"⏳ Aynı hedef tekrarlandı, {skipped_recent} eşleşme cooldown ile atlandı")
                 self.last_cooldown_log_time = now
 
+            self.no_detection_count += 1
+            self._detect_cooldown_blocked_only = True
             return None, 0, 0, 0
-                
+
         except Exception as e:
             self.log(f"⚠️ Detect monster hatası: {e}")
+            self._detect_cooldown_blocked_only = False
             return None, 0, 0, 0
-        
+
     def press_key(self, key):
         """Press a key using selected input method, with safe fallbacks."""
         method = self.input_method
@@ -1031,9 +2702,9 @@ class BotGUI:
     def send_pydirectinput_key(self, key):
         try:
             pydirectinput.keyDown(key)
-            time.sleep(0.01)
+            time.sleep(0.005)
             pydirectinput.keyUp(key)
-            time.sleep(0.01)
+            time.sleep(0.005)
             return True
         except Exception:
             return False
@@ -1041,7 +2712,30 @@ class BotGUI:
     def send_keyboard_key(self, key):
         try:
             keyboard.press_and_release(key)
-            time.sleep(0.01)
+            time.sleep(0.005)
+            return True
+        except Exception:
+            return False
+
+    def click_at(self, x, y):
+        """Click at screen coordinates using game-friendly method first, then fallback."""
+        xi, yi = int(round(x)), int(round(y))
+        try:
+            # pydirectinput often sends clicks without moving the visible cursor; games / users expect real cursor position.
+            ctypes.windll.user32.SetCursorPos(xi, yi)
+            time.sleep(0.007)
+        except Exception:
+            pass
+        try:
+            pydirectinput.moveTo(xi, yi)
+            time.sleep(0.002)
+            pydirectinput.click(x=xi, y=yi)
+            return True
+        except Exception:
+            pass
+
+        try:
+            pyautogui.click(x=xi, y=yi)
             return True
         except Exception:
             return False
@@ -1072,7 +2766,7 @@ class BotGUI:
             )
 
             sent_down = ctypes.windll.user32.SendInput(1, ctypes.byref(key_down), ctypes.sizeof(INPUT))
-            time.sleep(0.01)
+            time.sleep(0.006)
             sent_up = ctypes.windll.user32.SendInput(1, ctypes.byref(key_up), ctypes.sizeof(INPUT))
             return sent_down == 1 and sent_up == 1
         except Exception:
@@ -1088,15 +2782,41 @@ class BotGUI:
 
         self.log(skill_log + "✓")
         time.sleep(self.mob_delay)
+
+    def _run_buff_sequence(self):
+        """F2 bar: 1-5, optional 1-2 again, then F1 for attack skills."""
+        extra = " → 1-2" if self.buff_repeat_12 else ""
+        self.log(tr("log_buff_cycle").format(extra))
+        delays = getattr(self, "_buff_slot_delays", None)
+        if not delays or len(delays) != 5:
+            delays = [max(0.15, float(self.skill_delay))] * 5
+        self.press_key("f2")
+        time.sleep(0.35)
+        for i, k in enumerate(("1", "2", "3", "4", "5")):
+            self.press_key(k)
+            time.sleep(delays[i])
+        if self.buff_repeat_12:
+            for j, k in enumerate(("1", "2")):
+                self.press_key(k)
+                time.sleep(delays[j])
+        self.press_key("f1")
+        time.sleep(max(0.08, min(0.45, delays[-1])))
             
     def bot_loop(self):
-        time.sleep(2)  # Initial delay
+        time.sleep(0.2)
+
+        if self.buff_mode:
+            self._run_buff_sequence()
+            self._last_buff_time = time.time()
         
         while self.bot_running:
-            # Check if Q key is pressed
-            if keyboard.is_pressed('q'):
+            if keyboard.is_pressed("ctrl") and keyboard.is_pressed("q"):
                 self.root.after(0, self.stop_bot)
                 break
+
+            if self.buff_mode and (time.time() - self._last_buff_time >= self.buff_interval_s):
+                self._run_buff_sequence()
+                self._last_buff_time = time.time()
 
             # Press TAB every fixed interval
             current_time = time.time()
@@ -1104,91 +2824,94 @@ class BotGUI:
                 self.press_key('tab')
                 self.last_auto_tab_time = current_time
                 self.log("⚔️ Auto TAB pressed")
-                time.sleep(0.1)
+                time.sleep(0.01)
             
-            # Check if buff should be activated (every buff_interval seconds)
-            if self.buff_enabled:
-                current_time = time.time()
-                if current_time - self.last_buff_time >= self.buff_interval:
-                    self.log(f"⚡ BUFF TIME! Basılan tuşlar: {', '.join(self.buff_keys)}")
-                    for buff_key in self.buff_keys:
-                        self.press_key(buff_key)
-                        time.sleep(0.3)  # Small delay between buff keys
-                    self.last_buff_time = current_time
-                    time.sleep(1)  # Extra delay after buffs
-                
             try:
                 if self.keypress_only_mode:
                     self.run_keypress_cycle()
                     continue
 
-                if self.detection_mode == "template":
-                    # Template-based monster detection
-                    if not self.hunt_region:
-                        self.log("❌ Hunt region not set! Click 'Set Hunt Region' button.")
-                        time.sleep(3)
-                        continue
-                    
-                    if not self.monster_templates:
-                        self.log("❌ Monster templates not loaded! Başlangıçta yüklemeye çalış.")
-                        self.load_monster_templates()
-                        time.sleep(3)
-                        continue
-                    
-                    # Clear stale cache entries before each detection pass.
-                    self.cleanup_recent_target_clicks()
-
-                    # Take screenshot of hunt region
-                    x, y, w, h = self.hunt_region
-                    screenshot = pyautogui.screenshot(region=(x, y, w, h))
-                    
-                    # Detect monster using template matching
-                    monster_name, confidence, template_x, template_y = self.detect_monster_template(
-                        screenshot,
-                        self.active_template_filter
-                    )
-                    
-                    if monster_name and confidence >= self.template_threshold:
-                        # Monster found!
-                        
-                        # Calculate click position (center of template in screen coordinates)
-                        template = self.monster_templates[monster_name]
-                        template_h, template_w = template.shape[:2]
-                        rel_center_x = template_x + template_w // 2
-                        rel_center_y = template_y + template_h // 2
-                        center_x = x + template_x + template_w // 2
-                        center_y = y + template_y + template_h // 2
-                        
-                        self.log(f"🎯 [TEMPLATE] {monster_name} detected (confidence: {confidence:.2f}) at ({center_x}, {center_y})")
-                        
-                        # Click on the monster
-                        offset_x = center_x + random.randint(-5, 5)
-                        offset_y = center_y + random.randint(-5, 5)
-                        pyautogui.moveTo(offset_x, offset_y, duration=0.08)
-                        pydirectinput.click()
-                        self.remember_target_click(monster_name, rel_center_x, rel_center_y)
-                        time.sleep(0.1)
-                        
-                        # Execute skills
-                        skill_log = "   Skills: "
-                        for skill in self.skills:
-                            self.press_key(skill)
-                            skill_log += f"{skill} "
-                            time.sleep(self.skill_delay)
-                        
-                        self.log(skill_log + "✓")
-                        time.sleep(self.mob_delay)
-                    else:
-                        # No monster found, wait a bit
-                        time.sleep(0.3)
-                    
+                dims = self.resolve_hunt_region()
+                if not dims:
+                    now = time.time()
+                    if now - self._last_window_invalid_log > 2.5:
+                        self.log(tr("window_invalid"))
+                        self._last_window_invalid_log = now
+                    time.sleep(0.8)
                     continue
+
+                self.cleanup_recent_target_clicks()
+
+                x, y, w, h = dims
+                screenshot = self._capture_hunt_screenshot_pil()
+                if screenshot is None:
+                    time.sleep(0.04)
+                    continue
+
+                monster_name, confidence, rel_center_x, rel_center_y = self.detect_monster_template(screenshot)
+                detect_source = "TEMPLATE"
+
+                center_x = center_y = None
+                if monster_name and confidence >= self.template_threshold:
+                    rel_center_x, rel_center_y = self._hunt_rel_from_screenshot(
+                        rel_center_x, rel_center_y, screenshot, w, h
+                    )
+                    center_x = x + rel_center_x
+                    center_y = y + rel_center_y
+
+                    now_ts = time.time()
+                    skip_ground_click = self._should_block_repeat_ground_click(center_x, center_y, now_ts)
+                    skip_suffix = tr("detect_log_skip_click") if skip_ground_click else ""
+                    self.log(
+                        f"🎯 [{detect_source}] {monster_name} detected (score: {confidence:.2f}) at ({center_x}, {center_y}){skip_suffix}"
+                    )
+                    if skip_ground_click:
+                        if now_ts - self._last_skip_click_log > 2.0:
+                            self.log(tr("skip_reclick_log"))
+                            self._last_skip_click_log = now_ts
+                        time.sleep(0.008)
+                    else:
+                        if not self.click_at(center_x, center_y):
+                            self.log("⚠️ Mouse click gonderilemedi")
+                            time.sleep(0.07)
+                            continue
+                        self.remember_target_click(monster_name, rel_center_x, rel_center_y)
+                        time.sleep(0.008)
+
+                    skill_log = "   Skills: "
+                    for skill in self.skills:
+                        self.press_key(skill)
+                        skill_log += f"{skill} "
+                        time.sleep(self.skill_delay)
+
+                    self.log(skill_log + "✓")
+                    time.sleep(self.mob_delay)
+
+                    if not skip_ground_click:
+                        self._last_attack_click_screen = (center_x, center_y)
+                        self._no_reclick_screen_until = time.time() + self.reclick_lockout_s
+
+                if not (monster_name and confidence >= self.template_threshold):
+                    if self.no_detection_count > 0 and self.no_detection_count % 10 == 0:
+                        now = time.time()
+                        if now - self.last_no_detection_log_time > 2:
+                            self.log(
+                                "🔍 Şablon eşleşmesi yok. monsters/ PNG, tarama alanı ve «Aranacak Canavarlar» listesini kontrol edin."
+                            )
+                            self.last_no_detection_log_time = now
+
+                    # Corpse still matches template but position is on click-cooldown — scan quicker until it clears or a new mob appears.
+                    delay = 0.028 if getattr(self, "_detect_cooldown_blocked_only", False) else 0.07
+                    time.sleep(delay)
+
+                continue
 
             except Exception as e:
                 self.log(f"⚠️ Error: {e}")
-                time.sleep(1)
+                time.sleep(0.35)
 
 def main():
+    _try_set_process_dpi_aware()
     root = tk.Tk()
     app = BotGUI(root)
     root.mainloop()
