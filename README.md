@@ -1,12 +1,382 @@
 # Silkroad Vision Bot 🎮
 
-**Silkroad Online için Şablon Tabanlı (Template Matching) Canavar Tespit Sistemi ile Yazılmış Otomatik Bot**
+**Automatic Hunter Bot for Silkroad Online with Template-Based Monster Detection**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)]()
 
 ---
+
+## 📖 Language / Dil
+
+**[🇬🇧 English Version](#-english-version) | [🇹🇷 Türkçe Sürüm](#-türkçe-sürüm)**
+
+---
+
+# 🇬🇧 ENGLISH VERSION
+
+## 🎯 Key Features
+
+- **⌨️ Keypress Only Mode** (Optional)
+  - Press only specified keys without monster selection
+  - Fast, safe, and requires no setup
+  
+- **📸 Template-Based Monster Detection**
+  - Detect monsters using PNG files from the `monsters/` folder
+  - Image matching with OpenCV `cv2.matchTemplate`
+  - Adjustable confidence threshold
+  - Short-term repeat-click prevention for dead targets
+  - **No Tesseract OCR required!**
+
+- **🖱️ Flexible Input Method Selection**
+  - Auto (Automatic - recommended)
+  - SendInput (Hardware-level scan codes)
+  - PyDirectInput (Alternative input)
+  - Keyboard Library (Fallback option)
+
+- **⚙️ Customizable Settings**
+  - Skill interval (0.1 - 1.0 seconds)
+  - Mob interval (0.1 - 2.0 seconds)
+  - Template confidence threshold (0.1 - 0.9)
+  - Custom key combinations
+
+- **📊 Live Statistics**
+  - Monster kill counter
+  - Runtime duration
+  - Real-time log output
+
+### 📋 System Requirements
+
+- **Windows 10/11**
+- **Python 3.8 or higher**
+- **Game running in windowed mode** (not fullscreen)
+
+---
+
+## 🚀 Installation
+
+### 1. Clone the Project
+```bash
+git clone https://github.com/yourusername/silkroad-vision-bot.git
+cd silkroad-vision-bot
+```
+
+### 2. Install Python Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+Or manually:
+```bash
+pip install pyautogui pydirectinput keyboard pillow opencv-python numpy
+```
+
+### 3. Prepare Monster Templates ⭐ IMPORTANT
+
+**For Template-Based Monster Detection:**
+
+1. **Get close to a monster in-game**
+2. **Take a screenshot with Windows + Shift + S**
+3. **Select the area showing the monster's name or body** (where you can clearly see the name)
+4. **Save as PNG format** using Paint or similar
+5. **Copy to `monsters/` folder**
+
+**Example: Big White Spider Template**
+
+Your template should look like this:
+
+```
+📋 Template Example (Big White Spider):
+┌──────────────────────────────┐
+│  Big White Spider            │  ← Clearly visible name
+│  [Monster body visual]       │  ← Name and body
+└──────────────────────────────┘
+```
+
+**File Naming Examples:**
+```
+monsters/
+├── bighwhitespider.png
+├── earthghostsoldier.png
+├── shakram.png
+├── edimmu.png
+└── (more monster PNGs...)
+```
+
+**📌 Important Tips:**
+
+| Tip | Description |
+|-----|-------------|
+| **CLEAR IMAGE** | Select an area where you can clearly see the monster name or body |
+| **GOOD LIGHTING** | Take screenshots in good lighting conditions, not too dark or too bright |
+| **ZOOM LOCKED** | If you change the zoom level in-game, capture new templates |
+| **PNG FORMAT REQUIRED** | Do not use other formats (.jpg, .bmp), only PNG |
+| **TEST AFTER ADDING** | Test after adding templates to verify confidence scores in logs |
+
+---
+
+## 🌐 Language Selection
+
+**On First Launch:**
+- A language selection dialog appears when the app opens
+- Choose 🇬🇧 **English** or 🇹🇷 **Turkish**
+- Your selection is saved in `language.json`
+- The app opens in your selected language on subsequent launches
+
+**To Change Language:**
+```bash
+# Delete language.json file
+del language.json
+
+# Restart the program
+python bot_gui.py
+```
+
+### Start with GUI (Recommended)
+```bash
+python bot_gui.py
+```
+
+Or on Windows:
+- Double-click the `run_gui.bat` file
+- Or run as Administrator: Right-click `run_gui.bat` → Run as administrator
+
+---
+
+## ⚙️ Settings and Configuration
+
+### 1. **Keypress Only Mode** ✓ Default OFF
+
+```
+☑ Keypress Only Mode (Monster detection disabled)
+```
+
+- **When enabled:** Bot will only press keys, no monster detection
+- **When disabled:** Template-based monster detection is active → Hunt with PNG templates
+
+### 2. **Target Monsters** (Optional)
+
+```
+Target Monsters: shakram,edimmu
+```
+
+- Specify monster names separated by commas
+- If left empty, bot searches for all templates in `monsters/` folder
+- Matching is based on file names (without extension)
+
+### 3. **Skill Keys**
+
+```
+Skill Keys: 1,2,3,4
+```
+
+Specify keys the bot should press, separated by commas:
+- Example: `q,w,e,r`
+- Example: `1,2,3,4,5`
+
+### 4. **Skill Interval**
+
+```
+Skill Interval: 0.15 seconds
+```
+
+- Wait time between each key press
+- Low value = Fast attack
+- High value = Longer delay between keys
+
+### 5. **Mob Interval**
+
+```
+Mob Interval: 0.2 seconds
+```
+
+- Wait time after killing a monster before proceeding
+- Low = Fast hunting, High = More controlled
+
+### 6. **Input Method** (Key Sending)
+
+```
+Input Method: Auto (Recommended)
+```
+
+**Options:**
+- **Auto:** System automatically selects the appropriate method
+- **SendInput:** Direct Windows API hardware key press (Most reliable)
+- **PyDirectInput:** Alternative library
+- **Keyboard:** Fallback option
+
+### 7. **Hunt Region** (Monster Detection Area)
+
+Click the **"🎯 Set Hunt Region"** button
+
+Steps:
+1. Click the button
+2. When the "OK" dialog appears, the screen will turn gray
+3. **Click and drag your mouse** on the game area where monsters appear
+4. Release mouse button to confirm selection
+
+### 8. **Template Confidence Threshold**
+
+```
+Template Threshold: 0.40
+```
+
+- **Low value (0.1):** Very sensitive - detects almost anything
+- **High value (0.9):** Very strict - only exact matches
+- **Recommended:** 0.35 - 0.50
+
+**Debug Tip:** If you see "Confidence = X.XX" in logs, matching is working. If not, reduce the threshold.
+
+---
+
+## 📸 How Template-Based Monster Detection Works
+
+### Preparation Phase
+1. Place monster PNG files in `monsters/` folder
+2. Bot loads them automatically on startup → You'll see "Template loaded" in logs
+
+### Working Phase
+1. Bot captures a screenshot from Hunt Region
+2. Searches for each template on screen (OpenCV `cv2.matchTemplate`)
+3. If match confidence exceeds threshold:
+   - Click the detected location
+   - Press skill keys
+   - Search for next monster
+
+### Dead Target Re-click Prevention
+
+- Bot remembers the target name + location for a short time
+- If the same name appears at the same location again (e.g., dead monster label lingering), target is skipped
+- This prevents your character from repeatedly running toward dead targets outside the farming area
+
+### Debug Techniques
+- Log shows "Confidence = 0.XX" → Match successful! ✅
+- Excessive triggers in logs → Threshold too low (increase it)
+- No matches in logs → Threshold too high (decrease it)
+
+**Example Log Output:**
+```
+✅ Hunt region set: X=640, Y=200, W=400, H=300
+🎯 Template Mode: ON
+📸 Template 'bighwhitespider' loaded
+Confidence = 0.65 ← Good match!
+Confidence = 0.42 ← Acceptable
+Confidence = 0.38 ← Only detected if threshold is 0.35
+```
+
+---
+
+## ⌨️ Hotkeys
+
+- **Q:** Stop the bot (while in-game)
+- **START/STOP buttons:** Control from GUI
+
+---
+
+## 🚨 Troubleshooting
+
+### Bot not clicking on monsters
+**Checklist:**
+1. Is Keypress Only Mode OFF? (Must be OFF for template detection)
+2. Are there PNG files in `monsters/` folder?
+3. Is Hunt Region correctly set?
+4. Is Template Threshold too high? → Lower it (e.g., 0.40 → 0.30)
+5. Does bot log show "NO templates loaded"? If yes, templates not found
+
+### Keys not working in-game
+**Try in order:**
+1. Run as Administrator: Right-click `run_gui.bat` → Run as administrator
+2. Change Input Method: GUI → Select "SendInput"
+3. Switch game to windowed mode: Not fullscreen
+4. Focus game window: Click on game window before starting bot
+
+### GUI won't open
+```bash
+python bot_gui.py
+```
+
+If you get an error:
+```bash
+pip install --upgrade tkinter
+```
+
+---
+
+## 📁 File Structure
+
+```
+silkroad-vision-bot/
+│
+├── bot_gui.py              # Main GUI application
+├── bot.py                  # Command-line version
+├── requirements.txt        # Python dependencies
+├── run_gui.bat            # Windows GUI launcher
+├── README.md              # This file
+│
+├── monsters/              # Monster templates (PNG files)
+│   ├── bighwhitespider.png
+│   ├── earthghostsoldier.png
+│   └── .gitkeep
+│
+└── tools/                 # Utility scripts
+    └── fetch_tabler_icons.py
+```
+
+---
+
+## 💡 Usage Tips
+
+### Quick Start
+1. Start with template mode by default:
+   - Add 2-3 PNG files to `monsters/` folder
+   - Set Hunt Region
+   - Optionally specify target monsters
+   - Start
+
+2. **To set up monster detection:**
+   - Add 2-3 PNG files to `monsters/` folder
+   - Keep Keypress Only Mode OFF (default)
+   - Set Hunt Region
+   - Start bot
+
+### Template Selection
+- Select a section where the monster name is clearly visible
+- Don't take screenshots in very dark or very bright lighting
+- Recapture templates if you change the zoom level in-game
+
+### Performance Optimization
+- Adjust template threshold based on log output:
+  - Seeing "Confidence = 0.X" → Good, keep current threshold
+  - Not seeing matches → Reduce threshold by 0.05 and retry
+
+---
+
+## ⚠️ Disclaimer
+
+This bot is provided for educational purposes. Use at your own risk.
+
+**Warnings:**
+- The software author is not responsible for account bans
+- Ensure you follow the game's rules
+- Extended use may put your account at risk
+- Read the game's Terms of Service carefully
+
+---
+
+## 📜 License
+
+Open source under MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+**Happy hunting! 🎯**
+
+---
+
+---
+
+# 🇹🇷 TÜRKÇE SÜRÜM
 
 ## 🎯 Temel Özellikler
 
@@ -17,20 +387,20 @@
 - **📸 Şablon Tabanlı Canavar Tespiti**
   - `monsters/` klasöründeki PNG dosyalarla canavarlara karşı gözlem yapma
   - OpenCV `cv2.matchTemplate` kullanarak görüntü eşleştirme
-  - Ayarlanabilir hassasiyet (Threshold) seçeneği
+  - Ayarlanabilir güven eşiği (Threshold)
   - Aynı canavar etiketi ekranda kalsa bile kısa süreli tekrar tıklama engeli
   - **Tesseract OCR gerekmez!**
 
 - **🖱️ Esnek İnput Yöntemi Seçimi**
   - Auto (Otomatik - önerilen)
-  - SendInput (Hardware-level scan codes)
+  - SendInput (Hardware-level tuş kodları)
   - PyDirectInput (Alternatif girdi)
   - Keyboard Library (Fallback seçeneği)
 
 - **⚙️ Kişiselleştirilebilir Ayarlar**
   - Tuş aralığı (0.1 - 1.0 saniye)
   - Canavar arası bekleme (0.1 - 2.0 saniye)
-  - Şablon hassasiyet eşiği (0.1 - 0.9)
+  - Şablon güven eşiği (0.1 - 0.9)
   - Özel tuş kombinasyonları
 
 - **📊 Canlı İstatistikler**
@@ -64,33 +434,27 @@ Veya manuel:
 pip install pyautogui pydirectinput keyboard pillow opencv-python numpy
 ```
 
-### 3. Monster Şablonlarını Hazırla ⭐ ÖNEMLİ
+### 3. Canavar Şablonlarını Hazırla ⭐ ÖNEMLİ
 
 **Şablon Tabanlı Canavar Tespiti için:**
 
 1. **Oyunda bir canavara yaklaş**
 2. **Windows + Shift + S** ile ekran parçası al
-3. **Canavarın adının veya gövdesinin göründüğü kısmı** seç (ismini net görebileceğin kısım)
-4. **Paint veya benzeri programda kaydederken** PNG format seç
-5. **`monsters/` klasörüne** kopyala
+3. **Canavarın adının veya gövdesinin göründüğü kısmı seç** (ismini net görebileceğin kısım)
+4. **Paint veya benzeri programda kaydederken PNG format seç**
+5. **`monsters/` klasörüne kopyala**
 
-**Örnek: Big White Spider Template**
+**Örnek: Big White Spider Şablonu**
 
 Şablonunuz şöyle görünmelidir:
 
 ```
-📋 Template Örneği (Big White Spider):
+📋 Şablon Örneği (Big White Spider):
 ┌──────────────────────────────┐
 │  Big White Spider            │  ← Net görünen isim
 │  [Canavar gövdesi görseli]   │  ← İsim ve gövde
 └──────────────────────────────┘
 ```
-
-> **📝 Not:** Attachment'ta gönderilen "Big White Spider" fotoğrafını aşağıda kaydedin:
-> 
-> 📁 `docs/bighwhitespider_example.png`
->
-> Bu dosya README örneği için referanstır. Kendi template'lerinizi `monsters/` klasörüne koyun!
 
 **Dosya Adlandırma Örnekleri:**
 ```
@@ -99,7 +463,7 @@ monsters/
 ├── earthghostsoldier.png
 ├── shakram.png
 ├── edimmu.png
-└── (daha fazla monster PNG'si...)
+└── (daha fazla canavar PNG'si...)
 ```
 
 **📌 Önemli İpuçları:**
@@ -107,51 +471,14 @@ monsters/
 | İpucu | Açıklama |
 |-------|----------|
 | **NET RESİM SEÇ** | Canavar ismini veya gövdesini net görebileceğin bölümü seç |
-| **KOŞULLU ORTAM** | Çok karanlık veya aşırı parlak yerlerden kaliteli screenshot al |
-| **ZOOM SEVİYESİ TUTKALI** | Oyundaki zoom seviyesini değiştirirsen, yeni template al |
+| **İYİ AYDINLATMA** | Çok karanlık veya aşırı parlak yerlerden screenshot alma |
+| **ZOOM SEVİYESİ SABİT** | Oyundaki zoom seviyesini değiştirirsen, yeni template al |
 | **PNG FORMAT ŞART** | Başka formatlar (.jpg, .bmp) kullanma, sadece PNG |
-| **TEKRAR TEST ET** | Template ekledikten sonra bot başlatıp test et, confidence score'u kontrol et |
+| **SONRA TEST ET** | Template ekledikten sonra bot başlatıp confidence score'u kontrol et |
 
 ---
 
-## 📸 Şablon Tabanlı Canavar Tespiti Nasıl Çalışır?
-
-### Hazırlık Aşaması
-1. `monsters/` klasörüne canavar PNG'lerini koy
-2. Bot başlatıldığında otomatik yüklenir → Log'ta "Template yüklendi" mesajı görürsün
-
-### Çalışma Aşaması
-1. Bot, Hunt Region'dan screenshot alır
-2. Her template'i ekranda arar (OpenCV `cv2.matchTemplate`)
-3. Hassasiyet eşiğinden yukarı match bulursa:
-   - Bulduğu konuma tıkla
-   - Skill tuşlarını bas
-   - Sonraki canavar ara
-
-### Ölü Hedefe Tekrar Tıklama Engeli
-
-- Bot, tıkladığı hedefin adını + konumunu kısa süreli hafızada tutar.
-- Aynı isim aynı noktada tekrar bulunursa (ör. ölen canavarın etiketi birkaç saniye kaldığında) hedef atlanır.
-- Böylece karakterin sürekli aynı ölü hedefe yürüyüp farm alanından uzaklaşması azaltılır.
-
-### Debug Tekniği
-- Log penceresinde "Confidence = 0.XX" görüyorsan → İyi işaret! ✅
-- Titreşim (çok sık tetikleme) görüyorsan → Threshold çok düşük (artır)
-- Hiç match görmüyorsan → Threshold çok yüksek (azalt)
-
-**Örnek Log Çıktıları:**
-```
-✅ Hunt region set: X=640, Y=200, W=400, H=300
-🎯 Template Av Modu: ON
-📸 Template 'bighwhitespider' yüklendi
-Confidence = 0.65 ← İyi match!
-Confidence = 0.42 ← Kabul edilir
-Confidence = 0.38 ← Sadece threshold 0.35 ise algılanır
-```
-
----
-
-### 🌐 Dil Seçimi
+## 🌐 Dil Seçimi
 
 **İlk Açılışta:**
 - Uygulama açıldığında dil seçim penceresi gösterilir
@@ -188,51 +515,51 @@ Veya Windows'da:
 ```
 
 - **Etkinleştirildiğinde:** Bot sadece tuşları basacak, canavar araması yapmayacak
-- **Devre dışı:** Şablon tabanlı canavar tespiti aktifleşir → PNG template'lerle avlanır
+- **Devre dışı:** Şablon tabanlı canavar tespiti aktifleşir → PNG şablonlarla avlanır
 
-### Aranacak Canavarlar (Opsiyonel)
+### 2. **Aranacak Canavarlar** (Opsiyonel)
 
 ```
 Aranacak Canavarlar: shakram,edimmu
 ```
 
-- Virgülle birden fazla isim yazabilirsin (ör. 2 isim).
-- Boş bırakırsan `monsters/` klasöründeki tüm template'lerde arar.
-- Eşleşme, `monsters/` dosya adı üzerinden yapılır (uzantısız ad).
+- Virgülle birden fazla isim yazabilirsin
+- Boş bırakırsan `monsters/` klasöründeki tüm şablonlarda arar
+- Eşleşme, `monsters/` klasöründeki dosya adına göre yapılır (uzantısız)
 
-### 2. **Tuş Kombinasyonları**
+### 3. **Skill Tuşları**
 
 ```
-Skill Keys: 1,2,3,4
+Skill Tuşları: 1,2,3,4
 ```
 
-Botun basacağı tuşları virgülü kullanarak belirt:
+Botun basacağı tuşları virgülle ayırarak belirt:
 - Örnek: `q,w,e,r`
 - Örnek: `1,2,3,4,5`
 
-### 3. **Tuş Aralığı**
+### 4. **Skill Aralığı**
 
 ```
-Skill Interval: 0.15 saniye
+Skill Aralığı: 0.15 saniye
 ```
 
 - Her tuş basışı arasında bekle
 - Düşük değer = Hızlı hücum
 - Yüksek değer = Tuş arası daha uzun
 
-### 4. **Canavar Arası Bekleme**
+### 5. **Canavar Arası Bekleme**
 
 ```
-Mob Interval: 0.2 saniye
+Canavar Arası Bekleme: 0.2 saniye
 ```
 
 - Canavar öldürüldükten sonra ilerlemeden önce bekle
 - Düşük = Hızlı av, Yüksek = Daha kontrollü
 
-### 5. **Input Yöntemi** (Tuş Gönderme)
+### 6. **Input Yöntemi** (Tuş Gönderme)
 
 ```
-Input Method: Auto (Recommended)
+Input Yöntemi: Auto (Önerilen)
 ```
 
 **Seçenekler:**
@@ -241,11 +568,9 @@ Input Method: Auto (Recommended)
 - **PyDirectInput:** Alternatif kütüphane
 - **Keyboard:** Fallback seçeneği
 
-### 6. **Hunt Region** (Canavar Tespiti Alanı)
+### 7. **Hunt Region** (Canavar Tespiti Alanı)
 
-```
-"📍 Set Hunt Region (Template Detection)" butonuna tıkla
-```
+**"🎯 Hunt Region Seç"** butonuna tıkla
 
 Adımlar:
 1. Buton düğmesine tıkla
@@ -253,17 +578,17 @@ Adımlar:
 3. **Farenle** oyun içinde canavarlara baktığın bölgeyi seç (tıklayıp sürükle)
 4. Fare düğmesini bırak - bölge kaydedilir
 
-### 7. **Şablon Hassasiyet Eşiği** (Template Threshold)
+### 8. **Şablon Güven Eşiği**
 
 ```
-Template Threshold: 0.40
+Şablon Eşiği: 0.40
 ```
 
-- **Düşük değer (0.1):** Çok hassas - her benzer şeyi tespit eder
+- **Düşük değer (0.1):** Çok hassas - hemen hemen her şeyi tespit eder
 - **Yüksek değer (0.9):** Çok katı - sadece tam eşleşmeleri tespit eder
 - **Önerilen:** 0.35 - 0.50
 
-**Debug İpucu:** Log penceresinde "Confidence = X.XX" görürsen match başarılı demektir. Görmüyorsan threshold'u düşür.
+**Debug İpucu:** Log penceresinde "Confidence = X.XX" görürsen eşleşme başarılı demektir. Görmüyorsan eşiği düşür.
 
 ---
 
@@ -271,27 +596,43 @@ Template Threshold: 0.40
 
 ### Hazırlık Aşaması
 1. `monsters/` klasörüne canavar PNG'lerini koy
-2. Bot başlatıldığında otomatik yüklenir → Log'ta "Template yüklendi" mesajı görürsün
+2. Bot başlatıldığında otomatik yüklenir → Log'ta "Şablon yüklendi" mesajı görürsün
 
 ### Çalışma Aşaması
 1. Bot, Hunt Region'dan screenshot alır
-2. Her template'i ekranda arar (OpenCV `cv2.matchTemplate`)
-3. Hassasiyet eşiğinden yukarı match bulursa:
+2. Her şablonu ekranda arar (OpenCV `cv2.matchTemplate`)
+3. Güven eşiğinden yukarı eşleşme bulursa:
    - Bulduğu konuma tıkla
    - Skill tuşlarını bas
    - Sonraki canavar ara
 
-### Debug Tekniği
-- Log penceresinde titreşim görüyorsan → Threshold çok düşük
-- Hiç log görmüyorsan → Threshold çok yüksek
-- Ore "Confidence = 0.45" → İyi işaret!
+### Ölü Hedefe Tekrar Tıklama Engeli
+
+- Bot, tıkladığı hedefin adını + konumunu kısa süreli hafızada tutar
+- Aynı isim aynı noktada tekrar bulunursa (ör. ölen canavarın etiketi birkaç saniye kaldığında) hedef atlanır
+- Böylece karakterin sürekli aynı ölü hedefe yürüyüp farm alanından uzaklaşması engellenir
+
+### Debug Teknikleri
+- Log penceresinde "Confidence = 0.XX" görüyorsan → Eşleşme başarılı! ✅
+- Aşırı sık tetikleme görüyorsan → Eşik çok düşük (artır)
+- Hiç eşleşme görmüyorsan → Eşik çok yüksek (azalt)
+
+**Örnek Log Çıktıları:**
+```
+✅ Hunt region ayarlandı: X=640, Y=200, W=400, H=300
+🎯 Şablon Modu: AÇIK
+📸 'bighwhitespider' şablonu yüklendi
+Confidence = 0.65 ← İyi eşleşme!
+Confidence = 0.42 ← Kabul edilebilir
+Confidence = 0.38 ← Sadece eşik 0.35 ise algılanır
+```
 
 ---
 
 ## ⌨️ Tuşlar
 
 - **Q:** Botu durdur (oyun penceresinde)
-- **START/STOP:** GUI'dan kontrol et
+- **BAŞLAT/DUR:** GUI'dan kontrol et
 
 ---
 
@@ -299,16 +640,16 @@ Template Threshold: 0.40
 
 ### Bot canavarlara tıklamıyor
 **Kontrol listesi:**
-1. Tuş Vuruşu Modu kapalı mı? (Kapalı olması gerekir template tespiti için)
+1. Tuş Vuruşu Modu KAPALI mı? (Kapalı olması gerekir şablon tespiti için)
 2. `monsters/` klasöründe PNG dosyaları var mı?
 3. Hunt Region doğru mu seçildi?
-4. Template Threshold çok yüksek mi? → Düşür (örn: 0.40 → 0.30)
-5. Bot log'larında "NE template loaded" mi yazıyor? Eğer öyle, template bulunamıyor demektir
+4. Şablon Eşiği çok yüksek mi? → Düşür (örn: 0.40 → 0.30)
+5. Bot log'larında "NO templates loaded" mi yazıyor? Eğer öyle, şablon bulunamıyor demektir
 
-### Tuşlar oyunda gitmeyip
-**Deneme sırası:**
+### Tuşlar oyunda çalışmıyor
+**Sırasıyla dene:**
 1. Yönetici olarak çalıştır: `run_gui.bat` → Sağ tıkla → Yönetici olarak çalıştır
-2. Input Yöntemi değiştir: GUI'da "SendInput"ı seç (Tuş Vuruşu Modu aktifse)
+2. Input Yöntemi değiştir: GUI'da "SendInput"ı seç
 3. Oyunu pencereli moda al: Tam ekran değil, pencereli
 4. Oyun penceresine odaklan: Botu çalıştırmadan önce oyun açık ve seçili olsun
 
@@ -329,18 +670,19 @@ pip install --upgrade tkinter
 ```
 silkroad-vision-bot/
 │
-├── bot_gui.py              # Ana GUI programı
+├── bot_gui.py              # Ana GUI uygulaması
 ├── bot.py                  # Komut satırı versiyonu
 ├── requirements.txt        # Python bağımlılıkları
 ├── run_gui.bat            # Windows GUI başlatıcı
 ├── README.md              # Bu dosya
 │
-├── monsters/              # Canavar template'leri (PNG dosyaları)
+├── monsters/              # Canavar şablonları (PNG dosyaları)
 │   ├── bighwhitespider.png
 │   ├── earthghostsoldier.png
 │   └── .gitkeep
 │
-└── power_bar/             # (Eski sürümlerde kullanılıyordu)
+└── tools/                 # Yardımcı scriptler
+    └── fetch_tabler_icons.py
 ```
 
 ---
@@ -348,26 +690,27 @@ silkroad-vision-bot/
 ## 💡 Kullanım İpuçları
 
 ### Hızlı Başlangıç
-1. Varsayılan template modunda başla:
-  - `monsters/` klasörüne 2-3 PNG ekle
-  - Hunt Region'u seç
-  - Gerekirse Aranacak Canavarlar alanına 1 veya daha fazla isim yaz
-
-2. **Canavar Tespiti kurmak için:**
-  - `monsters/` klasörüne 2-3 PNG at
-  - Tuş Vuruşu Modu kapalı kalsın (varsayılan)
+1. Varsayılan şablon modu ile başla:
+   - `monsters/` klasörüne 2-3 PNG ekle
    - Hunt Region'u seç
+   - Gerekirse Aranacak Canavarlar alanına isim yaz
    - Başlat
 
-### Template Seçimi
+2. **Canavar Tespiti kurmak için:**
+   - `monsters/` klasörüne 2-3 PNG ekle
+   - Tuş Vuruşu Modu KAPALI kalsın (varsayılan)
+   - Hunt Region'u seç
+   - Botu başlat
+
+### Şablon Seçimi
 - Canavar adını net görebileceğin kısım seç
 - Zifiri karanlık veya aşırı aydınlık yerlerde screenshot alma
-- Zoom seviyesini değiştirirsen, yeni template'ler al
+- Zoom seviyesini değiştirirsen, yeni şablonlar al
 
 ### Performans Optimizasyonu
-- Template threshold'unu log'u okuyarak ayarla:
+- Şablon eşiğini log'u okuyarak ayarla:
   - "Confidence = 0.X" görüyorsan, iyiydir
-  - Görmüyorsan → Threshold'u 0.05 düşür ve yeniden dene
+  - Görmüyorsan → Eşiği 0.05 düşür ve yeniden dene
 
 ---
 
@@ -376,10 +719,10 @@ silkroad-vision-bot/
 Bu bot eğitim amaçlı yazılmıştır. Kullanımın riski size aittir.
 
 **Uyarılar:**
-- Bot hesabının yasaklanmasından yazılım yazarı sorumlu değildir
+- Hesabın yasaklanmasından yazılım yazarı sorumlu değildir
 - Oyun kurallarına uyduğunuzdan emin olun
 - Uzun süreli kullanımda hesabınızı riske atabilirsiniz
-- Oyunun Terms of Service'ini okuduğunuzdan emin olun
+- Oyunun Hizmet Şartları'nı okuduğunuzdan emin olun
 
 ---
 
