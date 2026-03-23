@@ -27,7 +27,6 @@
   - Image matching with OpenCV `cv2.matchTemplate`
   - Adjustable confidence threshold
   - Short-term repeat-click prevention for dead targets
-  - **No Tesseract OCR required!**
 
 - **🖱️ Flexible Input Method Selection**
   - Auto (Automatic - recommended)
@@ -389,7 +388,6 @@ Open source under MIT License. See [LICENSE](LICENSE) for details.
   - OpenCV `cv2.matchTemplate` kullanarak görüntü eşleştirme
   - Ayarlanabilir güven eşiği (Threshold)
   - Aynı canavar etiketi ekranda kalsa bile kısa süreli tekrar tıklama engeli
-  - **Tesseract OCR gerekmez!**
 
 - **🖱️ Esnek İnput Yöntemi Seçimi**
   - Auto (Otomatik - önerilen)
