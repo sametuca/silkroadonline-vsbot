@@ -53,6 +53,8 @@ LANGUAGES = {
         "status_mode_template_png": "Tespit: PNG şablon (monsters/)",
         "reclick_lockout": "Aynı bölgeye tekrar tıklama kilidi:",
         "reclick_hint": "(sn; skill sonrası zemine tıklayıp yürümeyi azaltır)",
+        "click_certainty": "Hedef tıklama kesinliği:",
+        "click_certainty_hint": "(yukarı çıktıkça bot daha seçici olur; boş alana tıklama azalır)",
         "skip_reclick_log": "⏭️ Aynı bölge — ek hedef tıklaması yok (skill devam)",
         "detect_log_skip_click": " | tıklama yok (aynı bölge kilidi)",
         "start": "BAŞLAT",
@@ -129,17 +131,21 @@ LANGUAGES = {
         "status_zerk_line_on": "Zerk: AÇIK",
         "status_zerk_line_off": "Zerk: kapalı",
         "status_input": "Giriş",
-        "buff_mode_toggle": "☑ Buff modu (F2 → 1-5 → F1, saldırı çubuğuna dön)",
+        "status_click_certainty": "Tıklama kesinliği min skor",
+        "buff_mode_toggle": "☑ Buff modu (F2 → seçili 1-8 → F1, saldırı çubuğuna dön)",
+        "buff_keys": "Buff tuş sırası:",
+        "buff_keys_hint": "(1-8: işaretlenenler soldan sağa sırayla basılır)",
         "buff_interval": "Buff yenileme aralığı:",
-        "buff_interval_hint": "(dakika; süre dolunca tekrar F2 + skill)",
+        "buff_interval_hint": "(saniye; süre dolunca tekrar F2 + skill)",
         "buff_cast_gap": "F2 çubuğunda tuşlar arası bekleme (sn):",
         "buff_cast_gap_hint": "(1’e bastıktan sonra animasyon bitene kadar bekle; skill aralığından ayrı)",
-        "buff_slot_times": "İsteğe bağlı — her slot için sn (1→5, virgülle):",
-        "buff_slot_times_hint": "Örn: 2, 1.5, 3, 1, 1 — boşsa yukarıdaki tek süre her aralıkta kullanılır.",
+        "buff_slot_times": "İsteğe bağlı — her slot için sn (1→8, virgülle):",
+        "buff_slot_times_hint": "Örn: 2,1.5,3,1,1,1,1,1 — boşsa yukarıdaki tek süre her aralıkta kullanılır.",
         "buff_repeat_12": "☑ Sıra bitince 1 ve 2’ye bir kez daha bas (isteğe bağlı; tuş aralığından bağımsız)",
-        "status_buff_line": "Buff: {} dk | F2 tuş ara: ~{} sn",
+        "status_buff_line": "Buff: her {} | F2 tuş ara: ~{} sn",
         "status_buff_off": "Buff: kapalı",
-        "log_buff_cycle": "✨ Buff döngüsü: F2 → 1-5{} → F1",
+        "log_buff_cycle": "✨ Buff döngüsü: F2 → {}{} → F1",
+        "error_empty_buff_skills": "❌ HATA: Buff modu açıkken en az 1 buff tuşu seçmelisin (1-8).",
         "language_label": "Dil:",
         "language_restart_title": "Dil değişikliği",
         "language_restart_confirm": (
@@ -174,6 +180,8 @@ LANGUAGES = {
         "status_mode_template_png": "Detect: PNG templates (monsters/)",
         "reclick_lockout": "Same-spot click lockout:",
         "reclick_hint": "(sec; reduces move-to-ground clicks after skills)",
+        "click_certainty": "Target click certainty:",
+        "click_certainty_hint": "(higher = stricter; reduces empty-area clicks)",
         "skip_reclick_log": "⏭️ Same area — no extra target click (skills continue)",
         "detect_log_skip_click": " | click skipped (same-area lockout)",
         "start": "START",
@@ -250,13 +258,21 @@ LANGUAGES = {
         "status_zerk_line_on": "Zerk: ON",
         "status_zerk_line_off": "Zerk: off",
         "status_input": "Input",
-        "buff_mode_toggle": "☑ Buff mode (F2 → 1-5 → F1, back to attack bar)",
+        "status_click_certainty": "Click certainty min score",
+        "buff_mode_toggle": "☑ Buff mode (F2 → selected 1-8 → F1, back to attack bar)",
+        "buff_keys": "Buff key order:",
+        "buff_keys_hint": "(1-8: checked slots are pressed left-to-right)",
         "buff_interval": "Buff refresh interval:",
-        "buff_interval_hint": "(minutes; F2 + skills again when due)",
+        "buff_interval_hint": "(seconds; F2 + skills again when due)",
+        "buff_cast_gap": "Delay between F2 bar keys (sec):",
+        "buff_cast_gap_hint": "(wait for cast animation; independent from attack skill interval)",
+        "buff_slot_times": "Optional per-slot delays in sec (1->8, comma):",
+        "buff_slot_times_hint": "Ex: 2,1.5,3,1,1,1,1,1 - empty uses uniform delay above.",
         "buff_repeat_12": "☑ Press 1 and 2 again after buff row",
-        "status_buff_line": "Buff: every {} min | F2 key gap: ~{} s",
+        "status_buff_line": "Buff: every {} | F2 key gap: ~{} s",
         "status_buff_off": "Buff: off",
-        "log_buff_cycle": "✨ Buff cycle: F2 → 1-5{} → F1",
+        "log_buff_cycle": "✨ Buff cycle: F2 → {}{} → F1",
+        "error_empty_buff_skills": "❌ ERROR: Enable at least 1 buff key (1-8) when buff mode is on.",
         "language_label": "Language:",
         "language_restart_title": "Change language",
         "language_restart_confirm": (
@@ -532,6 +548,7 @@ class BotGUI:
         self.buff_mode = False
         self.buff_interval_s = 30 * 60
         self.buff_repeat_12 = False
+        self.buff_keys = ["1", "2", "3", "4", "5"]
         self._buff_slot_delays = [1.2, 1.2, 1.2, 1.2, 1.2]
         self._buff_cast_gap_default = 1.2
         self._last_buff_time = 0.0
@@ -554,6 +571,8 @@ class BotGUI:
         
         self.monster_templates = {}  # {monster_name: {color, gray, width, height}}
         self.template_threshold = 0.16  # template match minimum score
+        self.min_click_confidence = 0.66  # hard floor before we allow target clicks
+        self.min_confidence_gap = 0.035  # top-vs-runner-up gap to avoid ambiguous matches
         self.template_debug = True  # Show all match scores for debugging
         self.template_scales = [0.80, 0.90, 1.00, 1.10, 1.20]
         self.template_scales_advanced = [0.76, 0.84, 0.92, 1.00, 1.08, 1.16, 1.24]
@@ -1314,24 +1333,40 @@ class BotGUI:
             command=self.refresh_status_modes,
         )
         buff_mode_check.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(8, 4))
-        ttk.Label(step3, text=tr("buff_interval")).grid(row=6, column=0, sticky=tk.W, pady=6)
-        self.buff_interval_var = tk.DoubleVar(value=30.0)
+        ttk.Label(step3, text=tr("buff_keys")).grid(row=6, column=0, sticky=tk.W, pady=6)
+        self.buff_bar_slot_keys = ("1", "2", "3", "4", "5", "6", "7", "8")
+        self.buff_slot_vars = [tk.BooleanVar(value=(i < 5)) for i in range(8)]
+        buff_box_frame = ttk.Frame(step3)
+        buff_box_frame.grid(row=6, column=1, padx=8, sticky="w")
+        for idx, key in enumerate(self.buff_bar_slot_keys):
+            ttk.Checkbutton(
+                buff_box_frame,
+                text=key,
+                variable=self.buff_slot_vars[idx],
+                command=self.refresh_status_modes,
+            ).grid(row=0, column=idx, padx=(0, 4))
+        ttk.Label(step3, text=tr("buff_keys_hint"), style="Info.TLabel").grid(
+            row=6, column=2, sticky=tk.W, padx=5
+        )
+
+        ttk.Label(step3, text=tr("buff_interval")).grid(row=7, column=0, sticky=tk.W, pady=6)
+        self.buff_interval_var = tk.DoubleVar(value=1800.0)
         buff_interval_slider = ttk.Scale(
             step3,
-            from_=5,
-            to=90,
+            from_=1,
+            to=5400,
             variable=self.buff_interval_var,
             orient=tk.HORIZONTAL,
             length=200,
             command=self.update_buff_interval,
         )
-        buff_interval_slider.grid(row=6, column=1, padx=8, sticky="ew")
-        self.buff_interval_label = ttk.Label(step3, text="30 dk", width=8)
-        self.buff_interval_label.grid(row=6, column=2, padx=5)
+        buff_interval_slider.grid(row=7, column=1, padx=8, sticky="ew")
+        self.buff_interval_label = ttk.Label(step3, text="30 dk 0 sn", width=12)
+        self.buff_interval_label.grid(row=7, column=2, padx=5)
         ttk.Label(step3, text=tr("buff_interval_hint"), style="Info.TLabel").grid(
-            row=7, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
+            row=8, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
         )
-        ttk.Label(step3, text=tr("buff_cast_gap")).grid(row=8, column=0, sticky=tk.W, pady=6)
+        ttk.Label(step3, text=tr("buff_cast_gap")).grid(row=9, column=0, sticky=tk.W, pady=6)
         self.buff_cast_gap_var = tk.DoubleVar(value=1.2)
         buff_cast_gap_slider = ttk.Scale(
             step3,
@@ -1342,19 +1377,19 @@ class BotGUI:
             length=200,
             command=self.update_buff_cast_gap,
         )
-        buff_cast_gap_slider.grid(row=8, column=1, padx=8, sticky="ew")
+        buff_cast_gap_slider.grid(row=9, column=1, padx=8, sticky="ew")
         self.buff_cast_gap_label = ttk.Label(step3, text="1.2 s", width=10)
-        self.buff_cast_gap_label.grid(row=8, column=2, padx=5)
+        self.buff_cast_gap_label.grid(row=9, column=2, padx=5)
         ttk.Label(step3, text=tr("buff_cast_gap_hint"), style="Info.TLabel").grid(
-            row=9, column=0, columnspan=3, sticky=tk.W, pady=(0, 2)
+            row=10, column=0, columnspan=3, sticky=tk.W, pady=(0, 2)
         )
         ttk.Label(step3, text=tr("buff_slot_times"), style="Info.TLabel").grid(
-            row=10, column=0, columnspan=3, sticky=tk.W, pady=(6, 0)
+            row=11, column=0, columnspan=3, sticky=tk.W, pady=(6, 0)
         )
         self.buff_slot_delays_entry = ttk.Entry(step3, width=36)
-        self.buff_slot_delays_entry.grid(row=11, column=0, columnspan=3, sticky=tk.W, pady=2)
+        self.buff_slot_delays_entry.grid(row=12, column=0, columnspan=3, sticky=tk.W, pady=2)
         ttk.Label(step3, text=tr("buff_slot_times_hint"), style="Info.TLabel").grid(
-            row=12, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
+            row=13, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
         )
         self.buff_repeat_12_var = tk.BooleanVar(value=True)
         buff_repeat_check = ttk.Checkbutton(
@@ -1363,7 +1398,8 @@ class BotGUI:
             variable=self.buff_repeat_12_var,
             command=self.refresh_status_modes,
         )
-        buff_repeat_check.grid(row=13, column=0, columnspan=3, sticky=tk.W, pady=2)
+        buff_repeat_check.grid(row=14, column=0, columnspan=3, sticky=tk.W, pady=2)
+        self.update_buff_interval(str(self.buff_interval_var.get()))
         self.update_buff_cast_gap(str(self.buff_cast_gap_var.get()))
         self.buff_slot_delays_entry.bind("<KeyRelease>", lambda _e: self.refresh_status_modes())
 
@@ -1427,6 +1463,24 @@ class BotGUI:
         self.reclick_lockout_label.grid(row=4, column=2, padx=5)
         ttk.Label(step4, text=tr("reclick_hint"), style="Info.TLabel").grid(
             row=5, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
+        )
+
+        ttk.Label(step4, text=tr("click_certainty")).grid(row=6, column=0, sticky=tk.W, pady=6)
+        self.min_click_confidence_var = tk.DoubleVar(value=float(self.min_click_confidence))
+        certainty_slider = ttk.Scale(
+            step4,
+            from_=0.16,
+            to=0.85,
+            variable=self.min_click_confidence_var,
+            orient=tk.HORIZONTAL,
+            length=200,
+            command=self.update_min_click_confidence,
+        )
+        certainty_slider.grid(row=6, column=1, padx=8, sticky="ew")
+        self.min_click_confidence_label = ttk.Label(step4, text=f"{self.min_click_confidence:.2f}", width=8)
+        self.min_click_confidence_label.grid(row=6, column=2, padx=5)
+        ttk.Label(step4, text=tr("click_certainty_hint"), style="Info.TLabel").grid(
+            row=7, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
         )
 
         # ============ BUTTONS ============
@@ -1512,11 +1566,16 @@ class BotGUI:
             if im:
                 add_line("· " + tr("status_input") + ": " + im, "sm_info")
 
+        add_line(
+            "· " + tr("status_click_certainty") + f": {getattr(self, 'min_click_confidence', 0.66):.2f}",
+            "sm_info",
+        )
+
         if getattr(self, "buff_mode_var", None) and self.buff_mode_var.get():
             try:
-                mins = int(round(float(self.buff_interval_var.get())))
+                sec = int(round(float(self.buff_interval_var.get())))
             except (tk.TclError, TypeError, ValueError):
-                mins = 30
+                sec = 1800
             gap_u = 1.2
             bgv = getattr(self, "buff_cast_gap_var", None)
             if bgv is not None:
@@ -1529,7 +1588,7 @@ class BotGUI:
             ent = getattr(self, "buff_slot_delays_entry", None)
             if ent is not None and ent.get().strip():
                 gap_txt = gap_txt + "*"
-            add_line("· " + tr("status_buff_line").format(mins, gap_txt), "sm_ok")
+            add_line("· " + tr("status_buff_line").format(self._format_seconds(sec), gap_txt), "sm_ok")
         elif getattr(self, "buff_mode_var", None):
             add_line("· " + tr("status_buff_off"), "sm_muted")
 
@@ -1549,12 +1608,20 @@ class BotGUI:
 
     def update_buff_interval(self, value):
         try:
-            m = float(value)
+            sec = float(value)
         except (TypeError, ValueError):
-            m = 30.0
-        m = max(5.0, min(90.0, m))
-        self.buff_interval_label.config(text=f"{int(round(m))} dk")
+            sec = 1800.0
+        sec = max(1.0, min(5400.0, sec))
+        self.buff_interval_label.config(text=self._format_seconds(int(round(sec))))
         self.refresh_status_modes()
+
+    @staticmethod
+    def _format_seconds(total_seconds):
+        s = max(1, int(round(float(total_seconds))))
+        m, sec = divmod(s, 60)
+        if m <= 0:
+            return f"{sec} sn"
+        return f"{m} dk {sec} sn"
 
     def update_buff_cast_gap(self, value):
         try:
@@ -1569,24 +1636,25 @@ class BotGUI:
         self.refresh_status_modes()
 
     @staticmethod
-    def _coerce_buff_slot_delays(raw, uniform):
-        """Parse optional 's1,s2,s3,s4,s5' delays (seconds after each F2-bar key)."""
+    def _coerce_buff_slot_delays(raw, uniform, expected_count):
+        """Parse optional per-slot delays (seconds after each selected F2-bar key)."""
+        n = max(1, int(expected_count))
         u = max(0.15, min(15.0, float(uniform)))
         if not (raw or "").strip():
-            return [u] * 5
+            return [u] * n
         parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
         nums = []
         for p in parts:
             try:
                 nums.append(max(0.05, float(p)))
             except ValueError:
-                return [u] * 5
-        if len(nums) >= 5:
-            out = nums[:5]
+                return [u] * n
+        if len(nums) >= n:
+            out = nums[:n]
         elif len(nums) > 0:
-            out = nums + [nums[-1]] * (5 - len(nums))
+            out = nums + [nums[-1]] * (n - len(nums))
         else:
-            return [u] * 5
+            return [u] * n
         return [min(15.0, max(0.05, x)) for x in out]
 
     def _parse_buff_slot_delays(self):
@@ -1596,11 +1664,22 @@ class BotGUI:
             u = 1.2
         u = max(0.2, min(12.0, u))
         raw = self.buff_slot_delays_entry.get().strip() if hasattr(self, "buff_slot_delays_entry") else ""
-        return BotGUI._coerce_buff_slot_delays(raw, u)
+        return BotGUI._coerce_buff_slot_delays(raw, u, len(getattr(self, "buff_keys", [])))
 
     def update_reclick_lockout(self, value):
         self.reclick_lockout_s = max(0.0, float(value))
         self.reclick_lockout_label.config(text=f"{self.reclick_lockout_s:.1f} sn")
+
+    def update_min_click_confidence(self, value):
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            v = float(getattr(self, "min_click_confidence", 0.66))
+        v = max(0.16, min(0.85, v))
+        self.min_click_confidence = v
+        if hasattr(self, "min_click_confidence_label"):
+            self.min_click_confidence_label.config(text=f"{v:.2f}")
+        self.refresh_status_modes()
 
     def update_input_method(self, event=None):
         method_text = self.input_method_var.get()
@@ -2136,11 +2215,19 @@ class BotGUI:
         self.keypress_only_mode = self.keypress_only_var.get()
 
         self.buff_mode = self.buff_mode_var.get()
+        self.buff_keys = [
+            key
+            for key, var in zip(self.buff_bar_slot_keys, self.buff_slot_vars)
+            if var.get()
+        ]
+        if self.buff_mode and not self.buff_keys:
+            self.log(tr("error_empty_buff_skills"))
+            return
         try:
             bm = float(self.buff_interval_var.get())
         except (tk.TclError, TypeError, ValueError):
-            bm = 30.0
-        self.buff_interval_s = max(60.0, min(5400.0, bm * 60.0))
+            bm = 1800.0
+        self.buff_interval_s = max(1.0, min(5400.0, bm))
         self.buff_repeat_12 = self.buff_repeat_12_var.get()
         self._buff_slot_delays = self._parse_buff_slot_delays()
         self._last_buff_time = time.time()
@@ -2148,6 +2235,10 @@ class BotGUI:
         self.auto_tab_enabled = self.auto_tab_enabled_var.get()
         self.last_auto_tab_time = time.time()
         self.advanced_vision_match = True
+        try:
+            self.min_click_confidence = max(0.16, min(0.85, float(self.min_click_confidence_var.get())))
+        except (tk.TclError, TypeError, ValueError):
+            self.min_click_confidence = 0.66
         try:
             self.reclick_lockout_s = max(0.0, float(self.reclick_lockout_var.get()))
         except (tk.TclError, TypeError, ValueError):
@@ -2210,11 +2301,13 @@ class BotGUI:
         self.log(f"⚙️ Mob interval: {self.mob_delay}s")
         self.log(f"⚔️ Auto TAB: {'ON' if self.auto_tab_enabled else 'OFF'}")
         self.log(f"⚔️ Auto TAB interval: {self.auto_tab_interval:.0f}s")
+        self.log(f"🎚️ Click certainty min score: {self.min_click_confidence:.2f}")
         if self.buff_mode:
             ds = ", ".join(f"{x:.2f}" for x in self._buff_slot_delays)
+            keys = "-".join(self.buff_keys)
             self.log(
-                f"✨ Buff mode: ON | interval: {self.buff_interval_s / 60:.0f} min | "
-                f"F2 bar wait after 1..5 (s): [{ds}] | "
+                f"✨ Buff mode: ON | interval: {self._format_seconds(self.buff_interval_s)} | "
+                f"keys: [{keys}] | F2 bar wait (s): [{ds}] | "
                 f"extra 1-2: {'yes' if self.buff_repeat_12 else 'no'}"
             )
         if not self.keypress_only_mode:
@@ -2640,6 +2733,26 @@ class BotGUI:
             self.cleanup_recent_target_clicks(now)
             skipped_recent = 0
 
+            top_conf = float(candidates[0][0])
+            # Keep detection threshold permissive for search, but require a stronger score to click.
+            if top_conf < self.min_click_confidence:
+                self.no_detection_count += 1
+                return None, 0, 0, 0
+
+            if len(candidates) > 1:
+                second_conf = float(candidates[1][0])
+                if (
+                    top_conf < (self.min_click_confidence + 0.08)
+                    and (top_conf - second_conf) < self.min_confidence_gap
+                ):
+                    if self.template_debug and now - self.last_cooldown_log_time > 1.2:
+                        self.log(
+                            f"⚖️ Belirsiz eşleşme atlandı: top={top_conf:.2f}, ikinci={second_conf:.2f}"
+                        )
+                        self.last_cooldown_log_time = now
+                    self.no_detection_count += 1
+                    return None, 0, 0, 0
+
             for confidence, monster_name, template_x, template_y, template_w, template_h in candidates:
                 center_x = template_x + template_w // 2
                 center_y = template_y + template_h // 2
@@ -2784,21 +2897,25 @@ class BotGUI:
         time.sleep(self.mob_delay)
 
     def _run_buff_sequence(self):
-        """F2 bar: 1-5, optional 1-2 again, then F1 for attack skills."""
+        """F2 bar: selected keys, optional 1-2 again, then F1 for attack skills."""
+        keys = list(getattr(self, "buff_keys", None) or ["1", "2", "3", "4", "5"])
+        seq = "-".join(keys)
         extra = " → 1-2" if self.buff_repeat_12 else ""
-        self.log(tr("log_buff_cycle").format(extra))
+        self.log(tr("log_buff_cycle").format(seq, extra))
         delays = getattr(self, "_buff_slot_delays", None)
-        if not delays or len(delays) != 5:
-            delays = [max(0.15, float(self.skill_delay))] * 5
+        if not delays or len(delays) != len(keys):
+            delays = [max(0.15, float(self.skill_delay))] * len(keys)
         self.press_key("f2")
         time.sleep(0.35)
-        for i, k in enumerate(("1", "2", "3", "4", "5")):
+        for i, k in enumerate(keys):
             self.press_key(k)
             time.sleep(delays[i])
         if self.buff_repeat_12:
-            for j, k in enumerate(("1", "2")):
+            rep = [k for k in ("1", "2") if k in keys]
+            for k in rep:
                 self.press_key(k)
-                time.sleep(delays[j])
+                idx = keys.index(k)
+                time.sleep(delays[idx])
         self.press_key("f1")
         time.sleep(max(0.08, min(0.45, delays[-1])))
             
