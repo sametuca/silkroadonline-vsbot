@@ -20,7 +20,7 @@ import numpy as np
 pydirectinput.PAUSE = 0
 
 # Help tab: YouTube watch URL video ID only (the part after v=)
-HELP_YOUTUBE_VIDEO_ID = ""
+HELP_YOUTUBE_VIDEO_ID = "Or2exym8qyQ"
 
 # LANGUAGE SUPPORT
 LANGUAGES = {
@@ -545,7 +545,7 @@ class BotGUI:
         self.skill_delay = 0.03
         self.mob_delay = 0.018
         self.skills = ['1', '2', '3', '4']
-        self.buff_mode = False
+        self.buff_mode = True
         self.buff_interval_s = 30 * 60
         self.buff_repeat_12 = False
         self.buff_keys = ["1", "2", "3", "4", "5"]
@@ -1038,7 +1038,7 @@ class BotGUI:
 
         ttk.Label(
             header_frame,
-            text="◆  Auto Hunter  ·  Template · Vision  ◆",
+            text="◆  Silkroad Online Vision Bot  ◆",
             style="Subtitle.TLabel",
         ).pack(pady=(6, 2))
         github_frame = ttk.Frame(header_frame)
@@ -1325,7 +1325,7 @@ class BotGUI:
         self.update_skill_delay(self.skill_delay_var.get())
         self.update_mob_delay(self.mob_delay_var.get())
 
-        self.buff_mode_var = tk.BooleanVar(value=False)
+        self.buff_mode_var = tk.BooleanVar(value=True)
         buff_mode_check = ttk.Checkbutton(
             step3,
             text=tr("buff_mode_toggle"),
@@ -1391,7 +1391,7 @@ class BotGUI:
         ttk.Label(step3, text=tr("buff_slot_times_hint"), style="Info.TLabel").grid(
             row=13, column=0, columnspan=3, sticky=tk.W, pady=(0, 4)
         )
-        self.buff_repeat_12_var = tk.BooleanVar(value=True)
+        self.buff_repeat_12_var = tk.BooleanVar(value=False)
         buff_repeat_check = ttk.Checkbutton(
             step3,
             text=tr("buff_repeat_12"),
