@@ -47,6 +47,11 @@ power_bar/*.jpeg
 !monsters/.gitkeep
 !power_bar/.gitkeep
 
+# User-specific runtime state
+language.json
+profiles/*.json
+!profiles/.gitkeep
+
 # Logs
 *.log
 

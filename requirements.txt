@@ -1,6 +1,11 @@
-pyautogui
-pydirectinput
-keyboard
+pillow
 opencv-python
 numpy
-pillow
+mss
+rapidfuzz
+pydirectinput
+keyboard
+
+# Optional, heavy (~500MB incl. torch): enables the "OCR" detection mode
+# which reads monster names instead of matching pixels/color.
+# pip install easyocr
