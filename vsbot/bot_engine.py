@@ -29,7 +29,7 @@ class BotConfig:
     game_hwnd: Optional[int] = None  # kept focused every cycle - SendInput only reaches the foreground window
     monsters_dir: str = "monsters"
 
-    detection_mode: str = "hybrid"  # "hybrid" | "color" | "template" | "ocr"
+    detection_mode: str = "color"  # "hybrid" | "color" | "template" | "ocr"
     nameplate_hsv: HSVRange = field(default_factory=lambda: color_detect.DEFAULT_NAMEPLATE_HSV)
     template_threshold: float = 0.40
     target_monsters: List[str] = field(default_factory=list)  # lowercase, empty = any
@@ -85,6 +85,9 @@ class BotEngine:
         self._attack_started_at = 0.0
         self._pending_detection = None  # (name, screen_x, screen_y) seen last scan, awaiting a 2nd-frame match
         self._death_miss_count = 0  # consecutive scans where the target's name-plate wasn't found
+        self._focus_warning_logged = False
+        self._scan_count = 0
+        self._last_heartbeat_at = 0.0
 
     # -- lifecycle -----------------------------------------------------
     def start(self):
@@ -104,7 +107,17 @@ class BotEngine:
         self._last_auto_tab_time = self.start_time
         self._pending_detection = None
         self._death_miss_count = 0
+        self._focus_warning_logged = False
+        self._scan_count = 0
+        self._last_heartbeat_at = self.start_time
         self.state = State.SCANNING
+
+        if self.config.game_hwnd is not None and not winutil.is_foreground(self.config.game_hwnd):
+            winutil.bring_window_to_front(self.config.game_hwnd)
+        if not winutil.is_admin():
+            self.log("ℹ️ Yönetici modunda çalışmıyorsunuz. Oyun yönetici olarak açıksa "
+                      "(çoğu anti-cheat bunu gerektirir) tuşlar/tıklamalar oyuna ulaşmaz - "
+                      "bu durumda botu da yönetici olarak çalıştırın.")
         self._stop_event.clear()
         self.running = True
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -160,6 +173,11 @@ class BotEngine:
     # -- states -------------------------------------------------------------
     def _do_scan(self, now):
         cfg = self.config
+        self._scan_count += 1
+        if now - self._last_heartbeat_at >= 8.0:
+            self._last_heartbeat_at = now
+            self.log(f"🔍 Taranıyor (#{self._scan_count}, mod={cfg.detection_mode}) - "
+                     f"henüz hedef bulunamadı" if self.kills == 0 else f"🔍 Taranıyor (#{self._scan_count})")
 
         if cfg.auto_tab and now - self._last_auto_tab_time >= cfg.auto_tab_interval:
             input_methods.press_key("tab", cfg.input_method)
@@ -328,9 +346,16 @@ class BotEngine:
         hwnd = self.config.game_hwnd
         if hwnd is None or not winutil.is_window_valid(hwnd):
             return
-        if not winutil.is_foreground(hwnd):
-            winutil.bring_window_to_front(hwnd)
-            time.sleep(0.05)
+        if winutil.is_foreground(hwnd):
+            return
+
+        got_focus = winutil.bring_window_to_front(hwnd)
+        time.sleep(0.05)
+        if not got_focus and not self._focus_warning_logged:
+            self._focus_warning_logged = True
+            admin_hint = "" if winutil.is_admin() else " Botu YÖNETİCİ olarak çalıştırmayı deneyin."
+            self.log("⚠ Oyun penceresi öne getirilemedi - girdiler oyuna ulaşmayabilir."
+                      " Oyun yönetici modunda çalışıyor olabilir." + admin_hint)
 
     def _cast_buffs(self):
         self.log("✨ Casting buffs")

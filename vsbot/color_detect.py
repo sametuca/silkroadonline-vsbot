@@ -57,17 +57,26 @@ def sample_hsv_at(bgr_image, x, y, tolerance=(10, 60, 60)):
     return lower, upper
 
 
-def dominant_text_hsv(bgr_crop, sat_min=80, val_min=80, hue_tolerance=10, min_pixels=8):
+def dominant_text_hsv(bgr_crop, sat_min=0, val_min=140, hue_tolerance=12, min_pixels=8, achromatic_sat_max=45):
     """Auto-derive an HSV range from the "wizard" monster-selection crop.
 
-    Nameplate text is a small patch of flat, saturated color sitting on a
-    much less saturated 3D-scene background - so instead of asking the
-    user to click precisely on a single letter (the old eyedropper flow),
-    this just finds the most common highly-saturated hue in the whole
-    selection and uses that. One drag-select over the monster now both
-    saves a template AND calibrates color - no separate step.
+    Nameplate text is a small patch of *bright* pixels sitting on a duller
+    3D-scene background - so instead of asking the user to click precisely
+    on a single letter (the old eyedropper flow), this finds the bright
+    pixels in the whole selection and characterizes their color. One
+    drag-select over the monster now both saves a template AND calibrates
+    color - no separate step.
 
-    Returns None if nothing sufficiently saturated was found (crop was too
+    Many game UIs render name-plates in pale/near-white text rather than a
+    strongly saturated color (cream, off-white, light yellow) - at low
+    saturation, hue is noisy/unstable (a handful of anti-aliased pixels can
+    swing it wildly), so for that case this returns a hue-agnostic
+    "bright, not-too-saturated" range instead of chasing a specific hue.
+    Strongly colored name-plates (orange, red, ...) still get the tighter
+    hue-banded range, which discriminates better against similarly-bright
+    background clutter.
+
+    Returns None if nothing sufficiently bright was found (crop was too
     plain/background-only); the caller should keep the previous
     calibration in that case.
     """
@@ -78,13 +87,17 @@ def dominant_text_hsv(bgr_crop, sat_min=80, val_min=80, hue_tolerance=10, min_pi
     if len(pixels) < min_pixels:
         return None
 
+    s_vals, v_vals = pixels[:, 1], pixels[:, 2]
+    v_lo = max(int(np.percentile(v_vals, 10)), 0)
+
+    if float(np.median(s_vals)) <= achromatic_sat_max:
+        s_hi = min(int(np.percentile(s_vals, 90)) + 30, 255)
+        return (0, 0, v_lo), (179, s_hi, 255)
+
     hues = pixels[:, 0].astype(np.int32)
     hist = np.bincount(hues, minlength=180)
     peak_hue = int(np.argmax(hist))
-
-    s_vals, v_vals = pixels[:, 1], pixels[:, 2]
-    lower = (max(peak_hue - hue_tolerance, 0), max(int(np.percentile(s_vals, 10)), 0),
-             max(int(np.percentile(v_vals, 10)), 0))
+    lower = (max(peak_hue - hue_tolerance, 0), max(int(np.percentile(s_vals, 10)), 0), v_lo)
     upper = (min(peak_hue + hue_tolerance, 179), 255, 255)
     return lower, upper
 

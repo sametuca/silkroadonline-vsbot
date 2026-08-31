@@ -50,9 +50,10 @@ _STRINGS = {
                     "TR": "Kısayollar (oyun penceresindeyken de çalışır): Ctrl+B başlat, Ctrl+D veya Q durdur."},
     "drag_to_select": {"EN": "Click and drag to select the hunt region, then release. Esc to cancel.",
                         "TR": "Av bölgesini seçmek için tıklayıp sürükleyin, sonra bırakın. İptal için Esc."},
-    "template_wizard_hint": {"EN": "Click and drag over the monster's name/body, then release.",
-                              "TR": "Canavarın adı/gövdesi üzerinde tıklayıp sürükleyin, sonra bırakın."},
-    "template_name_prompt": {"EN": "Template name (used as filename):", "TR": "Şablon adı (dosya adı olarak kullanılır):"},
+    "template_wizard_hint": {"EN": "Drag a tight box around just the monster's name text, then release.",
+                              "TR": "Canavarın isim yazısının tam üzerine dar bir kutu çizin, sonra bırakın."},
+    "template_name_prompt": {"EN": "Monster name (just a label, doesn't need to match the game):",
+                              "TR": "Canavar adı (sadece bir etiket, oyundaki isimle aynı olmak zorunda değil):"},
 
     "detection_mode": {"EN": "Detection Mode", "TR": "Tespit Modu"},
     "mode_hybrid": {"EN": "Hybrid (color + shape, recommended)", "TR": "Hibrit (renk + şekil, önerilen)"},
@@ -77,6 +78,11 @@ _STRINGS = {
     "calibrate_color": {"EN": "🎨 Calibrate Nameplate Color", "TR": "🎨 İsim Etiketi Rengini Kalibre Et"},
     "calibrate_hint": {"EN": "Click once directly on a monster's name text.", "TR": "Bir canavarın isim yazısının tam üzerine bir kez tıklayın."},
     "color_calibrated": {"EN": "Nameplate color calibrated", "TR": "İsim etiketi rengi kalibre edildi"},
+    "color_calibration_ok": {"EN": "color check passed ✅", "TR": "renk kontrolü başarılı ✅"},
+    "color_calibration_weak": {"EN": "⚠ color didn't re-match its own crop - try a tighter box around just the name text",
+                                "TR": "⚠ renk kendi kırpımını bile bulamadı - ismin tam üzerine daha dar bir kutu deneyin"},
+    "color_calibration_none": {"EN": "⚠ no clear color found - try a tighter box around just the name text",
+                                "TR": "⚠ net bir renk bulunamadı - ismin tam üzerine daha dar bir kutu deneyin"},
     "hp_bar": {"EN": "HP Bar (optional, for reliable death detection)", "TR": "HP Bar (opsiyonel, güvenilir ölüm tespiti için)"},
     "set_hp_bar": {"EN": "❤ Set HP Bar Region", "TR": "❤ HP Bar Bölgesi Seç"},
     "hp_bar_hint": {"EN": "Drag a thin box over just the target's HP bar (top-left corner to bottom-right).",
@@ -106,12 +112,11 @@ _STRINGS = {
                     "TR": "Botun nereye tıklayıp tuş basacağını bilmesi için oyun penceresini seçin."},
     "step2_help": {"EN": "Drag a box over the area where monsters/name-plates appear on screen.",
                     "TR": "Canavarların/isim etiketlerinin göründüğü ekran alanının üzerine bir kutu çizin."},
-    "step3_help": {"EN": "For each monster you want to hunt: drag a box over its name, type a name. "
-                          "One step does it all - template + color calibration, automatically. "
-                          "Tip: add the same monster again from a different angle/pose to improve matching.",
-                    "TR": "Avlamak istediğiniz her canavar için: isminin üzerine bir kutu çizin, bir isim yazın. "
-                          "Tek adımda hem şablon hem renk kalibrasyonu otomatik yapılır. "
-                          "İpucu: aynı canavarı farklı açı/pozdan tekrar eklerseniz tespit gücü artar."},
+    "step3_help": {"EN": "For each monster you want to hunt: drag a tight box around just its name text, "
+                          "type a name. The color is calibrated from that box automatically - no template "
+                          "picture needed.",
+                    "TR": "Avlamak istediğiniz her canavar için: isim yazısının tam üzerine dar bir kutu çizin, "
+                          "bir isim yazın. Renk o kutudan otomatik kalibre edilir - şablon görsel gerekmez."},
     "step4_help": {"EN": "Which keys should the bot press to attack? Comma-separated, in order.",
                     "TR": "Bot saldırmak için hangi tuşlara bassın? Virgülle ayırın, sırasıyla."},
     "add_monster": {"EN": "➕ Add Monster", "TR": "➕ Canavar Ekle"},

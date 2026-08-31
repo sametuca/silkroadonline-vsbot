@@ -152,8 +152,12 @@ class BotGUI:
                 ttk.Label(step_bar, text="   ", style="Hint.TLabel").pack(side="left")
 
         # -- page container ------------------------------------------------
+        # Sized to its content, not the window - otherwise short pages
+        # (step 1, 2, 4) leave a huge empty gap before the nav buttons.
+        # The leftover room goes to the log below instead, which is
+        # actually useful to see more of.
         self.page_container = ttk.Frame(root_frame)
-        self.page_container.pack(fill="both", expand=True)
+        self.page_container.pack(fill="x")
 
         self.page_frames = [ttk.Frame(self.page_container) for _ in range(5)]
         self._build_page_window(self.page_frames[PAGE_WINDOW])
@@ -174,8 +178,8 @@ class BotGUI:
 
         # -- log (always visible) ------------------------------------------
         log_frame = ttk.LabelFrame(root_frame, text=self.t("log"), padding=4)
-        log_frame.pack(fill="both", expand=False, pady=4)
-        self.log_text = tk.Text(log_frame, height=6, state="disabled", wrap="word",
+        log_frame.pack(fill="x", pady=4)
+        self.log_text = tk.Text(log_frame, height=5, state="disabled", wrap="word",
                                  bg=DARK_WIDGET_BG, fg=DARK_WIDGET_FG, insertbackground=DARK_WIDGET_FG,
                                  selectbackground=ACCENT, relief="flat", borderwidth=0, font=("Segoe UI", 10))
         self.log_text.pack(fill="both", expand=True, side="left")
@@ -263,8 +267,27 @@ class BotGUI:
                                       command=self._toggle_advanced, style="Toolbutton")
         adv_toggle.pack(anchor="w", pady=(14, 4))
 
+        # Advanced settings can get tall (profiles + detection + keys + HP
+        # bar + buffs) - give this section its own bounded, scrollable area
+        # instead of letting it push the nav/log off the bottom of the
+        # window with no way to reach them.
         self.advanced_frame = ttk.Frame(parent)
-        self._build_advanced_panel(self.advanced_frame)
+        adv_canvas = tk.Canvas(self.advanced_frame, height=320, highlightthickness=0,
+                                bg=DARK_WIDGET_BG, bd=0)
+        adv_scroll = ttk.Scrollbar(self.advanced_frame, orient="vertical", command=adv_canvas.yview)
+        adv_canvas.configure(yscrollcommand=adv_scroll.set)
+        adv_canvas.pack(side="left", fill="both", expand=True)
+        adv_scroll.pack(side="right", fill="y")
+
+        adv_inner = ttk.Frame(adv_canvas)
+        adv_window = adv_canvas.create_window((0, 0), window=adv_inner, anchor="nw")
+        adv_inner.bind("<Configure>", lambda _e: adv_canvas.configure(scrollregion=adv_canvas.bbox("all")))
+        adv_canvas.bind("<Configure>", lambda e: adv_canvas.itemconfig(adv_window, width=e.width))
+        adv_canvas.bind("<Enter>", lambda _e: adv_canvas.bind_all(
+            "<MouseWheel>", lambda ev: adv_canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
+        adv_canvas.bind("<Leave>", lambda _e: adv_canvas.unbind_all("<MouseWheel>"))
+
+        self._build_advanced_panel(adv_inner)
         # not packed initially - _toggle_advanced() handles visibility
 
     def _build_advanced_panel(self, parent):
@@ -279,7 +302,7 @@ class BotGUI:
 
         det_frame = ttk.LabelFrame(parent, text=self.t("detection_mode"), padding=8)
         det_frame.pack(fill="x", pady=4)
-        self.mode_var = tk.StringVar(value=self.mode_labels["hybrid"])
+        self.mode_var = tk.StringVar(value=self.mode_labels["color"])
         ttk.Combobox(det_frame, textvariable=self.mode_var, state="readonly",
                      values=list(self.mode_labels.values()), width=36).pack(anchor="w")
 
@@ -378,7 +401,7 @@ class BotGUI:
     def _show_page(self, index):
         for frame in self.page_frames:
             frame.pack_forget()
-        self.page_frames[index].pack(fill="both", expand=True)
+        self.page_frames[index].pack(fill="x")
         self.current_page = index
 
         for i, lbl in enumerate(self.step_labels):
@@ -508,6 +531,15 @@ class BotGUI:
     # monsters (combined template + color calibration)
     # ------------------------------------------------------------------
     def _add_monster(self):
+        """Color-only calibration + a friendly name - no template file, no
+        shape matching. A tight box around just the name text (the normal
+        way to use this) doesn't carry enough structure for reliable edge/
+        template matching, so requiring it as a second gate on top of the
+        color match was mostly just rejecting good detections. Color alone
+        (still confirmed by 2 consecutive scans + the nearest-to-player
+        pick in bot_engine) is faster and, for this crop size, more
+        reliable.
+        """
         self._bring_selected_window_front()
         rect = select_screen_region(self.root, self.t("template_wizard_hint"))
         if rect is None:
@@ -517,16 +549,14 @@ class BotGUI:
         if not name:
             return
         base = sanitize_template_basename(name)
-        path, is_variant = self._next_template_path(base)
 
         try:
             img = winutil.grab_screen(rect)
-            os.makedirs(MONSTERS_DIR, exist_ok=True)
-            img.save(path)
         except Exception as exc:
             messagebox.showerror(self.t("add_monster"), str(exc))
             return
 
+        color_note = ""
         try:
             import numpy as np
             bgr = np.array(img)[:, :, ::-1]
@@ -535,31 +565,19 @@ class BotGUI:
                 self.config.nameplate_hsv = hsv_range
                 if hasattr(self, "color_label"):
                     self.color_label.configure(text=self._hsv_text(hsv_range))
+                # sanity check: does the range we just derived even find
+                # its own source crop again? If not, warn immediately
+                # instead of the user discovering it during live hunting.
+                self_check = color_detect.find_candidates(bgr, hsv_range)
+                color_note = (" - " + self.t("color_calibration_ok") if self_check
+                              else " - " + self.t("color_calibration_weak"))
+            else:
+                color_note = " - " + self.t("color_calibration_none")
         except Exception:
-            pass  # color auto-calibration is a bonus, template save already succeeded
+            pass  # calibration failing shouldn't block adding the name
 
-        self._register_monster(base, path)
-        if is_variant:
-            self._log(f"📸 {base}: extra pose/angle added ({os.path.basename(path)}) - improves matching")
-        else:
-            self._log(f"📸 {base} added (template + color calibrated)")
-
-    @staticmethod
-    def _next_template_path(base):
-        """First save for `base` -> base.png. Adding the same name again
-        (a different pose/angle/animation frame of the same monster) stacks
-        as base__v2.png, base__v3.png, ... - detection.py matches all of
-        them and reports the best hit under the shared base name.
-        Returns (path, is_variant)."""
-        primary = os.path.join(MONSTERS_DIR, base + ".png")
-        if not os.path.exists(primary):
-            return primary, False
-        n = 2
-        while True:
-            candidate = os.path.join(MONSTERS_DIR, f"{base}__v{n}.png")
-            if not os.path.exists(candidate):
-                return candidate, True
-            n += 1
+        self._register_monster(base, None)
+        self._log(f"🎨 {base}{color_note}")
 
     def _register_monster(self, name, path):
         if any(m["name"] == name for m in self.monsters):

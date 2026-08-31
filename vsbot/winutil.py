@@ -8,6 +8,8 @@ memory.
 
 import ctypes
 import ctypes.wintypes as wintypes
+import os
+import sys
 
 try:
     from PIL import ImageGrab
@@ -97,12 +99,47 @@ def is_foreground(hwnd):
 
 
 def bring_window_to_front(hwnd):
+    """Best-effort focus request. Returns True only if the window actually
+    became the foreground window - Windows can silently refuse
+    SetForegroundWindow (the "foreground lock" restriction, or a window
+    running at higher process integrity than us, e.g. a game launched as
+    Administrator while we aren't) so callers that depend on this for
+    input to land should check the return value, not just call and hope.
+    """
     try:
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         user32.SetForegroundWindow(hwnd)
     except Exception:
         pass
+    return is_foreground(hwnd)
+
+
+def is_admin():
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def relaunch_as_admin():
+    """Re-launch the current process elevated (UAC prompt) and exit this one.
+
+    Needed when the game itself runs elevated (common with anti-cheat
+    launchers) - Windows' UIPI silently blocks a non-elevated process's
+    SendInput/SetForegroundWindow calls against a higher-integrity window,
+    with no error, which is exactly the "nothing happens" symptom this
+    fixes.
+    """
+    try:
+        if getattr(sys, "frozen", False):
+            exe, params = sys.executable, ""
+        else:
+            exe, params = sys.executable, f'"{os.path.abspath(sys.argv[0])}"'
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
+        return True
+    except Exception:
+        return False
 
 
 def grab_screen(bbox):
