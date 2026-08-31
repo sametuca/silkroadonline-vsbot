@@ -117,11 +117,7 @@ class BotGUI:
         self.selected_hwnd = None
         self.selected_window_title = None
         self.monsters = []  # [{"name": str, "path": str}] added via the wizard this session
-
-        self.mode_labels = {
-            "hybrid": self.t("mode_hybrid"), "color": self.t("mode_color"),
-            "template": self.t("mode_template"), "ocr": self.t("mode_ocr"),
-        }
+        self._hsv_samples = []  # every per-monster calibration this session - unioned, not overwritten
 
         self.config = BotConfig(monsters_dir=MONSTERS_DIR)
         self.engine = BotEngine(self.config, log_fn=self._log_threadsafe)
@@ -288,9 +284,6 @@ class BotGUI:
     def _build_advanced_panel(self, parent):
         det_frame = ttk.LabelFrame(parent, text=self.t("detection_mode"), padding=8)
         det_frame.pack(fill="x", pady=4)
-        self.mode_var = tk.StringVar(value=self.mode_labels["color"])
-        ttk.Combobox(det_frame, textvariable=self.mode_var, state="readonly",
-                     values=list(self.mode_labels.values()), width=36).pack(anchor="w")
 
         ocr_row = ttk.Frame(det_frame)
         ocr_row.pack(fill="x", pady=(6, 0))
@@ -380,6 +373,21 @@ class BotGUI:
     def _hsv_text(hsv_range):
         (h0, s0, v0), (h1, s1, v1) = hsv_range
         return f"H{h0}-{h1} S{s0}-{s1} V{v0}-{v1}"
+
+    def _merge_hsv_sample(self, hsv_range):
+        """Union every per-monster calibration this session instead of the
+        last one winning - most games use one consistent nameplate color
+        scheme across monster species, so each added monster should widen
+        (not replace) what we're willing to match. OCR reads the actual
+        name afterward anyway, so a wider net costs accuracy nothing here,
+        only recall goes up."""
+        self._hsv_samples.append(hsv_range)
+        lowers = [s[0] for s in self._hsv_samples]
+        uppers = [s[1] for s in self._hsv_samples]
+        merged = (tuple(min(v) for v in zip(*lowers)), tuple(max(v) for v in zip(*uppers)))
+        self.config.nameplate_hsv = merged
+        if hasattr(self, "color_label"):
+            self.color_label.configure(text=self._hsv_text(merged))
 
     # ------------------------------------------------------------------
     # wizard navigation
@@ -534,14 +542,12 @@ class BotGUI:
 
             hsv_range = color_detect.dominant_text_hsv(bgr)
             if hsv_range is not None:
-                self.config.nameplate_hsv = hsv_range
-                if hasattr(self, "color_label"):
-                    self.color_label.configure(text=self._hsv_text(hsv_range))
-                # sanity check: does the range we just derived even find
-                # its own source crop again? If not, this is visibly
-                # flagged right away instead of the user discovering it
-                # during live hunting.
-                status = "ok" if color_detect.find_candidates(bgr, hsv_range) else "weak"
+                self._merge_hsv_sample(hsv_range)
+                # sanity check: does the *combined* range still find this
+                # crop back? If not, this specific monster's color sits
+                # outside what we've calibrated so far - flagged right
+                # away instead of discovered during live hunting.
+                status = "ok" if color_detect.find_candidates(bgr, self.config.nameplate_hsv) else "weak"
 
             orb_ok = self.reference_matcher.add(base, bgr)
             self._log(("🧩 " if orb_ok else "🧩⚠ ") + self.t("orb_added" if orb_ok else "orb_too_plain", name=base))
@@ -678,13 +684,6 @@ class BotGUI:
         self.config.hp_bar_rect = None
         self.hp_bar_label.configure(text=self.t("hp_bar_not_set"))
 
-    def _mode_key(self):
-        label = self.mode_var.get()
-        for key, text in self.mode_labels.items():
-            if text == label:
-                return key
-        return "color"
-
     # ------------------------------------------------------------------
     # config / engine control
     # ------------------------------------------------------------------
@@ -692,7 +691,7 @@ class BotGUI:
         c = self.config
         c.hunt_region = self.hunt_region
         c.game_hwnd = self.selected_hwnd
-        c.detection_mode = self._mode_key()
+        c.detection_mode = "ocr"
         typed_targets = [s.strip().lower() for s in self.target_monsters_var.get().split(",") if s.strip()]
         c.target_monsters = typed_targets or [m["name"].lower() for m in self.monsters]
         c.keypress_only = self.keypress_only_var.get()
@@ -721,11 +720,9 @@ class BotGUI:
             messagebox.showwarning(self.t("start"), self.t("err_no_region"))
             return
 
-        if not self.config.keypress_only and self.config.detection_mode == "template":
-            templates = load_monster_templates(MONSTERS_DIR)
-            if not templates:
-                messagebox.showwarning(self.t("start"), self.t("err_no_templates"))
-                return
+        if not self.config.keypress_only and not ocr.is_available():
+            messagebox.showwarning(self.t("start"), self.t("err_no_ocr"))
+            return
 
         self._bring_selected_window_front()
 

@@ -278,8 +278,22 @@ def confirm_with_ocr(scene_bgr, found: Detection, target_names, reject_below=40,
     return best_score >= reject_below
 
 
+_OCR_MAX_CANDIDATES = 4  # bound the worst case: OCR is the slow part, don't spend it on every color blob
+
+
 def detect_with_ocr(scene_bgr, hsv_range, target_names=None, min_score=70, pad=6) -> Optional[Detection]:
     """Color candidates, confirmed/named by reading the actual text (OCR).
+
+    Two things keep this from calling OCR on every color blob in the hunt
+    region (the actual reason a pure-OCR pass is slow - each call costs
+    real milliseconds, and a full window can have a dozen color matches
+    that aren't name-plates at all):
+
+      1. Candidates come back nearest-to-center first (prefer_point) and
+         filtered to a text-like aspect ratio (name-plates read as wider
+         than tall; a near-square or tall blob is almost never text) -
+         both cheap, OCR-free checks.
+      2. Only the first `_OCR_MAX_CANDIDATES` survivors ever reach OCR.
 
     Returns None (rather than raising) if no OCR engine is installed -
     callers should check `vsbot.ocr.is_available()` before relying on this
@@ -288,10 +302,11 @@ def detect_with_ocr(scene_bgr, hsv_range, target_names=None, min_score=70, pad=6
     if not ocr.is_available():
         return None
 
-    candidates = color_detect.find_candidates(scene_bgr, hsv_range)
     scene_h, scene_w = scene_bgr.shape[:2]
+    candidates = color_detect.find_candidates(scene_bgr, hsv_range, prefer_point=(scene_w / 2, scene_h / 2))
+    text_like = [c for c in candidates if c.w >= c.h * 0.9][:_OCR_MAX_CANDIDATES]
 
-    for cand in candidates:  # already sorted strongest-first
+    for cand in text_like:
         x0 = max(cand.x - pad, 0)
         y0 = max(cand.y - pad, 0)
         x1 = min(cand.x + cand.w + pad, scene_w)

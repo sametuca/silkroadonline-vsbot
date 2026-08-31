@@ -30,7 +30,11 @@ class BotConfig:
     game_hwnd: Optional[int] = None  # kept focused every cycle - SendInput only reaches the foreground window
     monsters_dir: str = "monsters"
 
-    detection_mode: str = "color"  # "hybrid" | "color" | "template" | "ocr"
+    # "ocr" is the only mode exposed in the GUI now; "hybrid"/"color"/
+    # "template" still exist in detection.py and work if set directly
+    # (e.g. by other code embedding BotEngine), just no longer reachable
+    # from the wizard.
+    detection_mode: str = "ocr"
     nameplate_hsv: HSVRange = field(default_factory=lambda: color_detect.DEFAULT_NAMEPLATE_HSV)
     template_threshold: float = 0.40
     target_monsters: List[str] = field(default_factory=list)  # lowercase, empty = any
@@ -105,9 +109,8 @@ class BotEngine:
         self.templates = detection.load_monster_templates(self.config.monsters_dir)
         if self.config.detection_mode == "template" and not self.config.keypress_only and not self.templates:
             self.log("⚠ No monster templates loaded.")
-        if self.config.detection_mode == "ocr" and not ocr.is_available():
-            self.log("⚠ OCR mode selected but easyocr isn't installed - falling back to 'hybrid'.")
-            self.config.detection_mode = "hybrid"
+        if self.config.detection_mode == "ocr" and not self.config.keypress_only and not ocr.is_available():
+            self.log("❌ OCR engine not installed - nothing will be detected. Install Tesseract first.")
 
         self.reclick_guard.set_lockout(self.config.reclick_lockout)
         self.kills = 0
@@ -227,13 +230,14 @@ class BotEngine:
         # Require the same detection twice in a row before committing to a
         # click - filters single-frame noise, but only worth the latency
         # for hybrid/template modes where a false click could mean the
-        # wrong monster species. In color mode there's no "species" to get
-        # wrong, and a real target's box jitters a few pixels frame to
-        # frame (walk animation, camera drift) - requiring it to land
-        # within a tight tolerance twice in a row was rejecting almost
-        # every real detection, not just noise (this was the main cause of
-        # very sparse clicking). So: color mode trusts the first hit.
-        if cfg.detection_mode != "color":
+        # wrong monster species. Color and OCR modes don't have that
+        # failure mode (OCR already confirmed the actual name; color just
+        # isn't picking a species at all), and a real target's box jitters
+        # a few pixels frame to frame (walk animation, camera drift) -
+        # requiring it to land within a tight tolerance twice in a row was
+        # rejecting almost every real detection, not just noise. So both
+        # trust the first hit.
+        if cfg.detection_mode not in ("color", "ocr"):
             pending = self._pending_detection
             matches_pending = (
                 pending is not None and pending[0] == found.template_name

@@ -17,7 +17,20 @@ except ImportError:  # pillow not installed yet; surfaced clearly at runtime
     ImageGrab = None
 
 user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
 shcore = getattr(ctypes.windll, "shcore", None)
+
+# Correct signatures for the calls bring_window_to_front() relies on -
+# ctypes otherwise assumes 32-bit int returns, which happens to work most
+# of the time for HWNDs but is wrong on 64-bit Windows and has bitten real
+# programs before; worth being exact here since a wrong HWND silently
+# targets the wrong window instead of erroring.
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+user32.AttachThreadInput.restype = wintypes.BOOL
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
 
 def try_set_process_dpi_aware():
@@ -98,18 +111,65 @@ def is_foreground(hwnd):
         return False
 
 
+def _nudge_input_state():
+    """Tap Alt (no visible effect) right before SetForegroundWindow.
+
+    Windows' anti focus-stealing protection only allows a process to steal
+    foreground if it "recently received input" (among a few other
+    exemptions - see SetForegroundWindow's docs). A synthetic key event
+    satisfies that check; this is a long-standing, widely used workaround,
+    not a hack specific to this app.
+    """
+    VK_MENU = 0x12
+    KEYEVENTF_KEYUP = 0x0002
+    try:
+        user32.keybd_event(VK_MENU, 0, 0, 0)
+        user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+    except Exception:
+        pass
+
+
 def bring_window_to_front(hwnd):
-    """Best-effort focus request. Returns True only if the window actually
-    became the foreground window - Windows can silently refuse
-    SetForegroundWindow (the "foreground lock" restriction, or a window
-    running at higher process integrity than us, e.g. a game launched as
-    Administrator while we aren't) so callers that depend on this for
+    """Force `hwnd` to the foreground, working around Windows' focus-
+    stealing prevention rather than just calling SetForegroundWindow and
+    hoping. That single call is routinely refused for a background
+    process - happens regardless of admin/elevation, so running as
+    Administrator alone doesn't fix it (elevation and "am I allowed to
+    steal focus right now" are unrelated checks).
+
+    The reliable combination: temporarily attach this thread's input
+    state to the current foreground window's thread (this is what makes
+    Windows treat our SetForegroundWindow call as if it came from the
+    already-focused thread, which is always allowed), plus a synthetic
+    key tap as a second, independent nudge. Returns True only if the
+    window actually became foreground - callers that depend on this for
     input to land should check the return value, not just call and hope.
     """
     try:
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+
+        foreground_hwnd = user32.GetForegroundWindow()
+        current_thread_id = kernel32.GetCurrentThreadId()
+        target_thread_id = user32.GetWindowThreadProcessId(hwnd, None)
+        foreground_thread_id = (
+            user32.GetWindowThreadProcessId(foreground_hwnd, None) if foreground_hwnd else 0
+        )
+
+        attached_fg = attached_target = False
+        if foreground_thread_id and foreground_thread_id != current_thread_id:
+            attached_fg = bool(user32.AttachThreadInput(current_thread_id, foreground_thread_id, True))
+        if target_thread_id and target_thread_id != current_thread_id:
+            attached_target = bool(user32.AttachThreadInput(current_thread_id, target_thread_id, True))
+
+        _nudge_input_state()
+        user32.BringWindowToTop(hwnd)
         user32.SetForegroundWindow(hwnd)
+
+        if attached_fg:
+            user32.AttachThreadInput(current_thread_id, foreground_thread_id, False)
+        if attached_target:
+            user32.AttachThreadInput(current_thread_id, target_thread_id, False)
     except Exception:
         pass
     return is_foreground(hwnd)
