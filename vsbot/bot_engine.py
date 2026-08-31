@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
 
-from . import color_detect, detection, input_methods, ocr
+from . import color_detect, detection, input_methods, ocr, winutil
 from .capture import ScreenGrabber
 from .detection import ReclickGuard
 from .state_machine import State
@@ -26,12 +26,18 @@ HSVRange = Tuple[Tuple[int, int, int], Tuple[int, int, int]]
 @dataclass
 class BotConfig:
     hunt_region: Optional[tuple] = None  # (left, top, right, bottom) absolute screen coords
+    game_hwnd: Optional[int] = None  # kept focused every cycle - SendInput only reaches the foreground window
     monsters_dir: str = "monsters"
 
     detection_mode: str = "hybrid"  # "hybrid" | "color" | "template" | "ocr"
     nameplate_hsv: HSVRange = field(default_factory=lambda: color_detect.DEFAULT_NAMEPLATE_HSV)
     template_threshold: float = 0.40
     target_monsters: List[str] = field(default_factory=list)  # lowercase, empty = any
+    # Folds OCR into the default (hybrid) pipeline automatically when a fast
+    # engine (Tesseract) happens to be installed - reads the winning
+    # candidate's text once per cycle to veto an obvious false positive. A
+    # no-op with no OCR engine installed, so it's safe to leave on.
+    ocr_confirm: bool = True
 
     keypress_only: bool = False
     auto_tab: bool = False
@@ -77,6 +83,8 @@ class BotEngine:
         self._current_target: Optional[detection.Detection] = None
         self._current_target_screen_xy = (0, 0)
         self._attack_started_at = 0.0
+        self._pending_detection = None  # (name, screen_x, screen_y) seen last scan, awaiting a 2nd-frame match
+        self._death_miss_count = 0  # consecutive scans where the target's name-plate wasn't found
 
     # -- lifecycle -----------------------------------------------------
     def start(self):
@@ -94,6 +102,8 @@ class BotEngine:
         self.start_time = time.time()
         self._last_buff_time = self.start_time
         self._last_auto_tab_time = self.start_time
+        self._pending_detection = None
+        self._death_miss_count = 0
         self.state = State.SCANNING
         self._stop_event.clear()
         self.running = True
@@ -124,6 +134,8 @@ class BotEngine:
     def _tick(self):
         now = time.time()
         cfg = self.config
+
+        self._ensure_game_focused()
 
         if cfg.buffs_enabled and cfg.buff_keys and now - self._last_buff_time >= cfg.buff_interval:
             self._cast_buffs()
@@ -162,6 +174,7 @@ class BotEngine:
         target_names = set(cfg.target_monsters) if cfg.target_monsters else None
         found = self._run_detection(scene, target_names)
         if found is None:
+            self._pending_detection = None
             time.sleep(cfg.mob_interval)
             return
 
@@ -169,13 +182,29 @@ class BotEngine:
         screen_x, screen_y = left + found.center_x, top + found.center_y
 
         if cfg.hp_bar_rect is None and self.reclick_guard.is_recent(found.template_name, screen_x, screen_y, now):
+            self._pending_detection = None
             time.sleep(cfg.mob_interval)
             return
+
+        # Require the same detection twice in a row before committing to a
+        # click - filters out single-frame noise (motion blur, a passing
+        # skill effect briefly matching the color/shape).
+        pending = self._pending_detection
+        matches_pending = (
+            pending is not None and pending[0] == found.template_name
+            and abs(pending[1] - screen_x) <= 18 and abs(pending[2] - screen_y) <= 18
+        )
+        if not matches_pending:
+            self._pending_detection = (found.template_name, screen_x, screen_y)
+            time.sleep(0.08)
+            return
+        self._pending_detection = None
 
         self.log(f"🎯 {found.template_name} (confidence={found.confidence:.2f})")
         input_methods.click_at(screen_x, screen_y, cfg.input_method)
         self._current_target = found
         self._current_target_screen_xy = (screen_x, screen_y)
+        self._death_miss_count = 0
 
         if cfg.hp_bar_rect is not None:
             self.state = State.CONFIRMING
@@ -196,21 +225,25 @@ class BotEngine:
 
     def _do_attack(self, now):
         self._press_skills()
-        if self.config.hp_bar_rect is not None:
-            self._attack_started_at = self._attack_started_at or now
-            self.state = State.AWAITING_DEATH
-        else:
-            # no HP bar calibrated: one attack burst per acquisition, then
-            # treat as dead and move on (ReclickGuard already remembers it)
-            self.kills += 1
-            self.state = State.LOOTING
+        self._attack_started_at = self._attack_started_at or now
+        self.state = State.AWAITING_DEATH
         time.sleep(self.config.mob_interval)
 
     def _do_await_death(self, now):
-        ratio = self._read_hp_ratio()
-        timed_out = (now - self._attack_started_at) >= self.config.max_attack_seconds
+        cfg = self.config
+        timed_out = (now - self._attack_started_at) >= cfg.max_attack_seconds
 
-        if ratio is None or ratio <= self.config.hp_dead_threshold or timed_out:
+        if cfg.hp_bar_rect is not None:
+            ratio = self._read_hp_ratio()
+            is_dead = ratio is None or ratio <= cfg.hp_dead_threshold
+        else:
+            # No HP bar calibrated: infer death from the name-plate actually
+            # disappearing from where we last saw it (2 consecutive misses,
+            # so one occluded/flickered frame doesn't end the fight early) -
+            # a measurement, not the old "attack once and assume dead" guess.
+            is_dead = self._nameplate_gone()
+
+        if is_dead or timed_out:
             if timed_out:
                 self.log("⏱ Attack timed out, moving on")
             self.kills += 1
@@ -218,7 +251,30 @@ class BotEngine:
             return
 
         self._press_skills()
-        time.sleep(self.config.mob_interval)
+        time.sleep(cfg.mob_interval)
+
+    def _nameplate_gone(self):
+        scene = self._capture()
+        if scene is None:
+            return False  # a capture hiccup shouldn't end the fight early
+
+        name = self._current_target.template_name if self._current_target else None
+        target_names = {name.lower()} if name else None
+        found = self._run_detection(scene, target_names)
+
+        still_there = False
+        if found is not None:
+            left, top, _r, _b = self.config.hunt_region
+            fx, fy = left + found.center_x, top + found.center_y
+            tx, ty = self._current_target_screen_xy
+            still_there = abs(fx - tx) <= 30 and abs(fy - ty) <= 30
+
+        if still_there:
+            self._death_miss_count = 0
+            return False
+
+        self._death_miss_count += 1
+        return self._death_miss_count >= 2
 
     def _do_loot(self):
         if self.config.loot_key:
@@ -237,7 +293,13 @@ class BotEngine:
             return detection.detect_template(scene, self.templates, cfg.template_threshold, target_names)
         if mode == "ocr":
             return detection.detect_with_ocr(scene, cfg.nameplate_hsv, target_names)
-        return detection.detect_hybrid(scene, self.templates, cfg.nameplate_hsv, cfg.template_threshold, target_names)
+
+        found = detection.detect_hybrid(scene, self.templates, cfg.nameplate_hsv, cfg.template_threshold,
+                                         target_names)
+        if found is not None and cfg.ocr_confirm and not detection.confirm_with_ocr(scene, found, target_names):
+            self.log(f"🔎 OCR discarded a likely false positive ({found.template_name})")
+            return None
+        return found
 
     def _read_hp_ratio(self):
         cfg = self.config
@@ -254,6 +316,21 @@ class BotEngine:
                 return
             input_methods.press_key(key, self.config.input_method)
             time.sleep(self.config.skill_interval)
+
+    def _ensure_game_focused(self):
+        """Refocus the game window if the user clicked away from it.
+
+        SendInput has no concept of a "target window" - it goes wherever
+        Windows currently has focus. Without this, clicking into a text
+        editor (or anything else) mid-run silently redirects every
+        subsequent key press there instead of the game.
+        """
+        hwnd = self.config.game_hwnd
+        if hwnd is None or not winutil.is_window_valid(hwnd):
+            return
+        if not winutil.is_foreground(hwnd):
+            winutil.bring_window_to_front(hwnd)
+            time.sleep(0.05)
 
     def _cast_buffs(self):
         self.log("✨ Casting buffs")

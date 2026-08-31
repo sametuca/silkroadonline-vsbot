@@ -82,6 +82,20 @@ def is_window_valid(hwnd):
     return bool(user32.IsWindow(hwnd))
 
 
+def is_foreground(hwnd):
+    """True if `hwnd` is currently the OS-focused window.
+
+    SendInput always delivers keystrokes to whatever window has focus, not
+    to a chosen target - so anything that presses keys needs to check this
+    (and refocus if not) right before pressing, or clicks elsewhere by the
+    user will silently steal all subsequent input.
+    """
+    try:
+        return user32.GetForegroundWindow() == hwnd
+    except Exception:
+        return False
+
+
 def bring_window_to_front(hwnd):
     try:
         if user32.IsIconic(hwnd):

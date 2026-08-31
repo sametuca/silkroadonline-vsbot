@@ -22,8 +22,10 @@ anti-cheat systems that watch process memory or the wire protocol.
 4. If skill keys don't seem to register in-game, right-click the exe →
    **Run as administrator**.
 
-The exe is rebuilt automatically from this repo's source on every release
-(see the `Actions` tab), so it's always the same code you can read here —
+The [**Releases**](../../releases/latest) page is rebuilt automatically
+from every commit pushed to `main` (see the `Actions` tab) - no versioned
+tags to track, that one link always has the newest build. It's always the
+same code you can read here —
 nothing hidden is added during packaging.
 
 ## Design decisions (and why)
@@ -38,8 +40,11 @@ This version is built as a **layered pipeline** instead:
 | **Fast capture** | [`mss`](https://github.com/BoboTiG/python-mss) instead of `PIL.ImageGrab` | Low-level OS capture, no GDI round-trip — a tighter loop without burning CPU on screenshots. |
 | **Color candidates** | HSV mask → connected components (`vsbot/color_detect.py`) | Name-plates are flat, saturated colors regardless of the 3D scene behind them. Finding *candidates* this way is cheap and survives zoom/lighting changes; you calibrate the color once by clicking on a name in-game. |
 | **Shape confirm** | Multi-scale **edge** template matching (Canny + `matchTemplate`), run only on the small crops around each candidate | Edges instead of raw grayscale tolerate lighting differences; multiple scales tolerate camera zoom drift. Only matching small crops (not the whole region) is what makes this fast enough to run every frame. |
-| **Optional OCR** | `easyocr` + fuzzy match (`rapidfuzz`), pluggable | Reads the *actual name* instead of comparing pixels — most precise option, but a ~500MB ML dependency, so it's opt-in, not required. |
-| **Death detection** | HP-bar fill-ratio reading (`color_detect.read_hp_ratio`), falls back to a timer-based reclick guard if no HP bar is calibrated | A measurement beats a guess: reading the actual health bar tells you precisely when a kill lands instead of assuming after N seconds. |
+| **Multi-pose templates** | Add the same monster again from a different angle → stacks as `name__v2.png`, `name__v3.png`, ... matched as one target (`detection.base_monster_name`) | A single static screenshot misses idle/attack animation frames; several poses under one name catch more of them without any extra config. |
+| **Nearest-first ranking** | Among near-equal shape matches, the candidate closest to the scene center wins (`color_detect.find_candidates(..., prefer_point=...)`) | Mirrors how a player naturally picks the nearest monster of the right kind, instead of a farther one that happened to score marginally higher. |
+| **2-frame click confirmation** | The same detection (name + position) must appear in two consecutive scans before it's clicked | Filters out single-frame noise — motion blur, a passing skill effect briefly matching color/shape — at the cost of one extra scan of latency. |
+| **Optional OCR** | Reads the actual name instead of comparing pixels. Two swappable engines: **Tesseract** (`pytesseract`, fast, non-ML, needs the separate binary installed) tried first, **easyocr** (slower, pure-pip, no separate install) as fallback | Precision option for when color+shape isn't discriminating enough between similar monsters; kept optional either way so nobody's forced into a slow or heavy dependency. |
+| **Death detection** | HP-bar fill-ratio reading (`color_detect.read_hp_ratio`) when calibrated; otherwise the name-plate's actual disappearance from screen (2 consecutive misses) - both are measurements, not a timer guess | Knows precisely when a kill lands instead of assuming after N seconds, whether or not you bother calibrating an HP bar. |
 | **Architecture** | Explicit state machine (`vsbot/state_machine.py`): `SCANNING → CONFIRMING → ATTACKING → AWAITING_DEATH → LOOTING` | Each phase is isolated and logged, instead of one long function guessing what to do next. |
 | **Config** | JSON multi-profile store (`vsbot/profiles.py`) | Different characters/farm spots need different regions, keys and thresholds — save/load named presets instead of re-entering everything. |
 
@@ -57,9 +62,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Optional, for the OCR detection mode: `pip install easyocr` (large
-download, CPU-only is fine). Without it, OCR mode is simply unavailable
-and the GUI tells you so — everything else works normally.
+Optional, for the OCR detection mode - pick one:
+- **Fast (recommended):** install [Tesseract-OCR](https://github.com/UB-Mannheim/tesseract/wiki) (Windows installer), then `pip install pytesseract` (already in requirements.txt) picks it up automatically.
+- **No separate install, but slower:** `pip install easyocr` (large download, CPU-only is fine).
+
+Without either, OCR mode is simply unavailable and the GUI tells you so —
+everything else (hybrid/color/template modes) works normally.
 
 Run as Administrator (right-click `run_gui.bat`) if key presses don't
 register in-game.

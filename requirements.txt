@@ -5,7 +5,15 @@ mss
 rapidfuzz
 pydirectinput
 keyboard
+pytesseract
+sv_ttk
 
-# Optional, heavy (~500MB incl. torch): enables the "OCR" detection mode
-# which reads monster names instead of matching pixels/color.
+# OCR detection mode needs one of these engines - both optional, code
+# degrades gracefully (mode just stays unavailable) if neither is present:
+#
+# Fast (recommended): install the separate Tesseract-OCR binary, then
+# pytesseract above will find and use it automatically. Windows installer:
+# https://github.com/UB-Mannheim/tesseract/wiki
+#
+# Or, no separate binary but slower (~500MB incl. torch), pure pip install:
 # pip install easyocr

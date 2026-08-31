@@ -1,43 +1,121 @@
 """Optional OCR + fuzzy name matching layer.
 
-Not a hard dependency: most players running a free hunt tool on modest
-hardware don't want a multi-hundred-MB ML library forced on them just to
-click monsters. If `easyocr` happens to be installed, this module uses it
-to read a candidate crop's actual text and fuzzy-match it against the
-target monster list - noticeably more precise than pixel matching because
-it recognizes the glyphs rather than comparing raw pixels. If it isn't
-installed, `is_available()` is False and callers fall back to the color/
-template pipeline in detection.py.
+Two possible backends, tried in this order:
+
+  1. **Tesseract** (via `pytesseract`) - a small, fast, non-ML OCR engine.
+     Only usable if the separate `tesseract.exe` binary is installed and
+     found on PATH (or in its default install location) - there is no
+     reliable portable/bundleable Windows build of it, so this stays a
+     "use it if you have it" install, documented in the README. On the
+     tiny crops this module actually feeds it (a single name-plate, not a
+     full screen), it typically runs in a few milliseconds - fast enough
+     to run every scan cycle.
+  2. **easyocr** - a deep-learning OCR engine. Much slower per call
+     (hundreds of ms, no GPU assumed) but pure-Python/pip-installable
+     with no separate binary, so it's the fallback for anyone who'd
+     rather not install Tesseract separately.
+
+Neither is a hard dependency: if neither is available, `is_available()`
+is False and callers fall back to the color/template pipeline instead.
 """
 
-_reader = None
-_checked = False
+import os
+
+_engine = None  # "tesseract" | "easyocr" | False (checked, unavailable) | None (not checked yet)
+_easyocr_reader = None
+
+_TESSERACT_FALLBACK_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+]
 
 
 def is_available():
     _ensure_engine()
-    return _reader is not False and _reader is not None
+    return _engine is not False
+
+
+def engine_name():
+    """'tesseract', 'easyocr', or None if OCR isn't available - for the GUI to show which one is active."""
+    _ensure_engine()
+    return _engine or None
+
+
+def reset_cache():
+    """Forget the cached engine choice so the next call re-probes for
+    Tesseract - call this right after installing it (tesseract_installer)
+    so the app notices without needing a restart."""
+    global _engine
+    _engine = None
 
 
 def _ensure_engine():
-    global _reader, _checked
-    if _checked:
+    global _engine
+    if _engine is not None:
         return
-    _checked = True
+    _engine = _try_tesseract() or _try_easyocr() or False
+
+
+def _try_tesseract():
+    try:
+        import pytesseract
+    except ImportError:
+        return None
+    try:
+        pytesseract.get_tesseract_version()
+        return "tesseract"
+    except Exception:
+        pass
+    for candidate in _TESSERACT_FALLBACK_PATHS:
+        if os.path.isfile(candidate):
+            pytesseract.pytesseract.tesseract_cmd = candidate
+            try:
+                pytesseract.get_tesseract_version()
+                return "tesseract"
+            except Exception:
+                continue
+    return None
+
+
+def _try_easyocr():
+    global _easyocr_reader
     try:
         import easyocr
-        _reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        _easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        return "easyocr"
     except Exception:
-        _reader = False
+        return None
 
 
 def read_text(bgr_image) -> str:
     """Best-effort OCR of a small crop. Returns "" if OCR isn't available."""
     _ensure_engine()
-    if not _reader:
+    if _engine == "tesseract":
+        return _read_tesseract(bgr_image)
+    if _engine == "easyocr":
+        return _read_easyocr(bgr_image)
+    return ""
+
+
+def _read_tesseract(bgr_image) -> str:
+    try:
+        import pytesseract
+        from PIL import Image
+        rgb = bgr_image[:, :, ::-1]
+        img = Image.fromarray(rgb)
+        # --psm 7: treat the crop as a single line of text (it is one) -
+        # much faster and more accurate than the default full-page mode.
+        text = pytesseract.image_to_string(img, config="--psm 7")
+        return text.strip()
+    except Exception:
+        return ""
+
+
+def _read_easyocr(bgr_image) -> str:
+    if _easyocr_reader is None:
         return ""
     try:
-        results = _reader.readtext(bgr_image, detail=0, paragraph=False)
+        results = _easyocr_reader.readtext(bgr_image, detail=0, paragraph=False)
         return " ".join(results).strip()
     except Exception:
         return ""

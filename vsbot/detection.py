@@ -23,8 +23,24 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import cv2
+import numpy as np
 
 from . import color_detect, ocr
+
+
+def _imread_unicode(path, flags=cv2.IMREAD_COLOR):
+    """cv2.imread silently returns None for paths with non-ASCII characters
+    on Windows (it doesn't go through a wide-character/UTF-8 file open) -
+    and this project's own folder name ("Masaüstü") is exactly such a path.
+    Reading the bytes via Python's own (Unicode-safe) file I/O and decoding
+    with cv2.imdecode sidesteps that entirely."""
+    try:
+        data = np.fromfile(path, dtype=np.uint8)
+    except OSError:
+        return None
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, flags)
 
 
 class MonsterTemplate:
@@ -51,7 +67,7 @@ def load_monster_templates(folder) -> List[MonsterTemplate]:
         if not fname.lower().endswith(".png"):
             continue
         path = os.path.join(folder, fname)
-        img = cv2.imread(path, cv2.IMREAD_COLOR)
+        img = _imread_unicode(path, cv2.IMREAD_COLOR)
         if img is None:
             continue
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -113,12 +129,21 @@ def _best_multiscale_match(region_gray, tpl_gray, scales=_SCALES):
     return best
 
 
+def base_monster_name(template_name):
+    """Strip the "__vN" variant suffix (see gui.py's Add Monster step,
+    which lets you stack multiple poses/angles of the same monster under
+    one logical name - "wolf", "wolf__v2", "wolf__v3", ... all match as
+    "wolf" for target filtering and in what gets reported/clicked)."""
+    return template_name.split("__", 1)[0]
+
+
 def detect_color_only(scene_bgr, hsv_range, target_names=None) -> Optional[Detection]:
-    """No template needed at all - just the strongest color-matched blob."""
-    candidates = color_detect.find_candidates(scene_bgr, hsv_range)
+    """No template needed at all - just the nearest color-matched blob."""
+    h, w = scene_bgr.shape[:2]
+    candidates = color_detect.find_candidates(scene_bgr, hsv_range, prefer_point=(w / 2, h / 2))
     if not candidates:
         return None
-    best = candidates[0]  # already sorted by area, largest = strongest signal
+    best = candidates[0]  # nearest to scene center, i.e. nearest to the player
     return Detection("target", 1.0, best.x, best.y, best.w, best.h)
 
 
@@ -129,7 +154,8 @@ def detect_template(scene_bgr, templates, threshold, target_names=None) -> Optio
     scene_gray = cv2.cvtColor(scene_bgr, cv2.COLOR_BGR2GRAY)
     best = None
     for tpl in templates:
-        if target_names and tpl.name.lower() not in target_names:
+        base = base_monster_name(tpl.name)
+        if target_names and base.lower() not in target_names:
             continue
         match = _best_multiscale_match(scene_gray, tpl.gray)
         if match is None:
@@ -138,7 +164,7 @@ def detect_template(scene_bgr, templates, threshold, target_names=None) -> Optio
         if score < threshold:
             continue
         if best is None or score > best.confidence:
-            best = Detection(tpl.name, float(score), x, y, w, h)
+            best = Detection(base, float(score), x, y, w, h)
     return best
 
 
@@ -149,18 +175,28 @@ def detect_hybrid(scene_bgr, templates, hsv_range, threshold, target_names=None,
     template search (only a handful of small crops get matched, not the
     whole hunt region) and more tolerant of zoom drift than plain color
     detection (still tells monsters apart by shape, not just color).
+
+    Among near-equal shape matches, the candidate closer to the scene
+    center (roughly where the player stands) wins - mirrors how a player
+    would naturally pick the nearest monster of the right kind rather
+    than one further away, without letting proximity override a clearly
+    stronger/weaker shape match.
     """
     if not templates:
         return detect_color_only(scene_bgr, hsv_range, target_names)
 
-    candidates = color_detect.find_candidates(scene_bgr, hsv_range)
+    scene_h, scene_w = scene_bgr.shape[:2]
+    center = (scene_w / 2, scene_h / 2)
+    max_dist = (scene_w ** 2 + scene_h ** 2) ** 0.5 or 1.0
+
+    candidates = color_detect.find_candidates(scene_bgr, hsv_range, prefer_point=center)
     if not candidates:
         return None
 
-    scene_h, scene_w = scene_bgr.shape[:2]
     scene_gray = cv2.cvtColor(scene_bgr, cv2.COLOR_BGR2GRAY)
 
     best = None
+    best_rank = -1.0
     for cand in candidates:
         x0 = max(cand.x - pad, 0)
         y0 = max(cand.y - pad, 0)
@@ -168,8 +204,12 @@ def detect_hybrid(scene_bgr, templates, hsv_range, threshold, target_names=None,
         y1 = min(cand.y + cand.h + pad, scene_h)
         crop = scene_gray[y0:y1, x0:x1]
 
+        cx, cy = cand.x + cand.w / 2, cand.y + cand.h / 2
+        dist_norm = ((cx - center[0]) ** 2 + (cy - center[1]) ** 2) ** 0.5 / max_dist
+
         for tpl in templates:
-            if target_names and tpl.name.lower() not in target_names:
+            base = base_monster_name(tpl.name)
+            if target_names and base.lower() not in target_names:
                 continue
             match = _best_multiscale_match(crop, tpl.gray)
             if match is None:
@@ -177,10 +217,65 @@ def detect_hybrid(scene_bgr, templates, hsv_range, threshold, target_names=None,
             score, mx, my, w, h = match
             if score < threshold:
                 continue
-            if best is None or score > best.confidence:
-                best = Detection(tpl.name, float(score), x0 + mx, y0 + my, w, h)
+            rank = score - 0.08 * dist_norm  # small nudge toward the nearer candidate
+            if rank > best_rank:
+                best_rank = rank
+                best = Detection(base, float(score), x0 + mx, y0 + my, w, h)
 
     return best
+
+
+def confirm_with_ocr(scene_bgr, found: Detection, target_names, reject_below=40, pad=6) -> bool:
+    """Extra safety pass folded into the default (hybrid) pipeline: if
+    Tesseract/easyocr happens to be installed, read the actual text on the
+    winning candidate and check it roughly matches one of the names you're
+    hunting. This runs OCR exactly once per cycle (only on the already-
+    chosen candidate, not every candidate), so it doesn't change hybrid's
+    speed profile even on the slower easyocr backend.
+
+    Uses token_set_ratio rather than ocr.fuzzy_match's partial_ratio: real
+    nameplates usually carry extra tokens ("Mangyang (Lv.1)", "Tiger Girl
+    [INT] - (Level 20)") that partial_ratio isn't built to ignore, and it's
+    lenient enough that an unrelated longer string can score deceptively
+    high against a short target name - exactly wrong for a veto check.
+    token_set_ratio scores a full match despite the extra tokens while
+    still scoring genuinely different text low.
+
+    Deliberately gives the benefit of the doubt on an empty read (small
+    stylized game fonts aren't always legible to OCR) - it only vetoes a
+    candidate whose text clearly contradicts every target name, which is
+    the situation actually worth catching (a same-colored/shaped false
+    positive - a UI icon, another player's name, etc).
+
+    Returns True to keep the detection, False to discard it as a likely
+    false positive. Always True if OCR isn't installed or there's nothing
+    to compare against (no target_names set).
+    """
+    if not target_names or not ocr.is_available():
+        return True
+
+    scene_h, scene_w = scene_bgr.shape[:2]
+    x0 = max(found.left - pad, 0)
+    y0 = max(found.top - pad, 0)
+    x1 = min(found.left + found.w + pad, scene_w)
+    y1 = min(found.top + found.h + pad, scene_h)
+    crop = scene_bgr[y0:y1, x0:x1]
+    if crop.size == 0:
+        return True
+
+    text = ocr.read_text(crop)
+    if not text:
+        return True  # illegible crop - don't penalize for OCR's limits
+
+    text_low = text.strip().lower()
+    try:
+        from rapidfuzz import fuzz
+        best_score = max(fuzz.token_set_ratio(text_low, name.lower()) for name in target_names)
+    except ImportError:
+        import difflib
+        best_score = max(difflib.SequenceMatcher(None, text_low, name.lower()).ratio() * 100
+                          for name in target_names)
+    return best_score >= reject_below
 
 
 def detect_with_ocr(scene_bgr, hsv_range, target_names=None, min_score=70, pad=6) -> Optional[Detection]:

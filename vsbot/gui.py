@@ -1,18 +1,67 @@
-"""Tkinter GUI wiring capture, detection, profiles and the engine together."""
+"""Tkinter GUI: a 5-step wizard (Window -> Region -> Monsters -> Keys -> Start).
+
+Advanced knobs (detection mode, HP bar, buffs, thresholds, profiles) live in
+a collapsed panel on the last page so the default path stays short.
+"""
 
 import os
+import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox, simpledialog, ttk
 
-from . import color_detect, ocr, profiles, winutil
+import sv_ttk
+
+from . import color_detect, ocr, profiles, tesseract_installer, winutil
 from .bot_engine import BotConfig, BotEngine
-from .detection import load_monster_templates, sanitize_template_basename
+from .detection import base_monster_name, load_monster_templates, sanitize_template_basename
 from .i18n import Translator, get_language, save_language
 from .paths import data_path
 from .region_select import pick_screen_point, select_screen_region
 
 MONSTERS_DIR = data_path("monsters")
+
+STEP_KEYS = ["step1_title", "step2_title", "step3_title", "step4_title", "step5_title"]
+PAGE_WINDOW, PAGE_REGION, PAGE_MONSTERS, PAGE_KEYS, PAGE_START = range(5)
+
+ACCENT = "#3b82f6"
+ACCENT_DIM = "#93a3b8"
+# sv_ttk's dark theme doesn't reach plain tk widgets (Text/Listbox aren't
+# ttk) - theme those by hand so they don't show up as a jarring bright
+# white box in the middle of an otherwise dark window.
+DARK_WIDGET_BG = "#202020"
+DARK_WIDGET_FG = "#e8e8e8"
+
+
+def _enlarge_default_fonts(root):
+    """sv_ttk's flat dark theme still inherits Tk's tiny 9pt default fonts -
+    bump every named default font up so the whole app reads comfortably at
+    a glance instead of looking like a dense old-school Windows dialog."""
+    for name, size, weight in (
+        ("TkDefaultFont", 11, "normal"), ("TkTextFont", 11, "normal"),
+        ("TkHeadingFont", 12, "bold"), ("TkMenuFont", 11, "normal"),
+        ("TkFixedFont", 11, "normal"),
+    ):
+        try:
+            f = tkfont.nametofont(name)
+            f.configure(size=size, weight=weight)
+        except tk.TclError:
+            pass
+
+
+def _configure_custom_styles():
+    style = ttk.Style()
+    style.configure("TLabelframe", padding=14)
+    style.configure("TLabelframe.Label", font=("Segoe UI", 11, "bold"))
+    style.configure("TButton", padding=(14, 8))
+    style.configure("Nav.TButton", padding=(22, 14), font=("Segoe UI", 12, "bold"))
+    style.configure("Big.Accent.TButton", padding=(22, 14), font=("Segoe UI", 12, "bold"))
+    style.configure("StepCurrent.TLabel", font=("Segoe UI", 12, "bold"), foreground=ACCENT)
+    style.configure("StepDone.TLabel", font=("Segoe UI", 11), foreground="#4ade80")
+    style.configure("StepTodo.TLabel", font=("Segoe UI", 11), foreground=ACCENT_DIM)
+    style.configure("Hint.TLabel", font=("Segoe UI", 10), foreground=ACCENT_DIM)
+    style.configure("Title.TLabel", font=("Segoe UI", 16, "bold"))
 
 
 class LanguageDialog(tk.Toplevel):
@@ -45,6 +94,10 @@ class BotGUI:
         winutil.try_set_process_dpi_aware()
         self.root = root
 
+        sv_ttk.set_theme("dark")
+        _enlarge_default_fonts(root)
+        _configure_custom_styles()
+
         lang = get_language()
         if lang is None:
             dlg = LanguageDialog(root)
@@ -54,79 +107,190 @@ class BotGUI:
         self.t = Translator(lang)
 
         self.root.title(self.t("app_title"))
-        self.root.geometry("660x880")
-        self.root.minsize(600, 760)
+        self.root.geometry("720x840")
+        self.root.minsize(660, 700)
 
         self.hunt_region = None
         self.selected_hwnd = None
         self.selected_window_title = None
+        self.monsters = []  # [{"name": str, "path": str}] added via the wizard this session
+
+        self.mode_labels = {
+            "hybrid": self.t("mode_hybrid"), "color": self.t("mode_color"),
+            "template": self.t("mode_template"), "ocr": self.t("mode_ocr"),
+        }
 
         self.config = BotConfig(monsters_dir=MONSTERS_DIR)
         self.engine = BotEngine(self.config, log_fn=self._log_threadsafe)
 
         os.makedirs(MONSTERS_DIR, exist_ok=True)
+        self.current_page = PAGE_WINDOW
         self._build_ui()
-        self._refresh_template_count()
+        self._load_existing_monsters()
         self._refresh_profile_list()
         self._register_stop_hotkey()
         self._tick_status()
+        self._show_page(PAGE_WINDOW)
 
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
     def _build_ui(self):
-        outer_container = ttk.Frame(self.root)
-        outer_container.pack(fill="both", expand=True)
+        root_frame = ttk.Frame(self.root, padding=20)
+        root_frame.pack(fill="both", expand=True)
 
-        canvas = tk.Canvas(outer_container, highlightthickness=0)
-        vscroll = ttk.Scrollbar(outer_container, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vscroll.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        vscroll.pack(side="right", fill="y")
+        # -- step indicator ----------------------------------------------------
+        step_bar = ttk.Frame(root_frame)
+        step_bar.pack(fill="x", pady=(0, 20))
+        self.step_labels = []
+        step_glyphs = ["①", "②", "③", "④", "⑤"]
+        for i, key in enumerate(STEP_KEYS):
+            lbl = ttk.Label(step_bar, text=f"{step_glyphs[i]} {self.t(key)}")
+            lbl.pack(side="left")
+            self.step_labels.append(lbl)
+            if i < len(STEP_KEYS) - 1:
+                ttk.Label(step_bar, text="   ", style="Hint.TLabel").pack(side="left")
 
-        outer = ttk.Frame(canvas, padding=10)
-        canvas.create_window((0, 0), window=outer, anchor="nw")
-        outer.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # -- page container ------------------------------------------------
+        self.page_container = ttk.Frame(root_frame)
+        self.page_container.pack(fill="both", expand=True)
 
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self.page_frames = [ttk.Frame(self.page_container) for _ in range(5)]
+        self._build_page_window(self.page_frames[PAGE_WINDOW])
+        self._build_page_region(self.page_frames[PAGE_REGION])
+        self._build_page_monsters(self.page_frames[PAGE_MONSTERS])
+        self._build_page_keys(self.page_frames[PAGE_KEYS])
+        self._build_page_start(self.page_frames[PAGE_START])
 
-        # -- profiles ---------------------------------------------------------
-        prof_frame = ttk.LabelFrame(outer, text=self.t("profiles"), padding=8)
+        # -- navigation ---------------------------------------------------------
+        nav = ttk.Frame(root_frame)
+        nav.pack(fill="x", pady=(16, 6))
+        self.back_btn = ttk.Button(nav, text=self.t("back"), command=self._go_back, style="Nav.TButton")
+        self.back_btn.pack(side="left")
+        self.next_btn = ttk.Button(nav, text=self.t("next"), command=self._go_next, style="Big.Accent.TButton")
+        self.next_btn.pack(side="right")
+
+        ttk.Label(root_frame, text=self.t("hotkey_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 4))
+
+        # -- log (always visible) ------------------------------------------
+        log_frame = ttk.LabelFrame(root_frame, text=self.t("log"), padding=4)
+        log_frame.pack(fill="both", expand=False, pady=4)
+        self.log_text = tk.Text(log_frame, height=6, state="disabled", wrap="word",
+                                 bg=DARK_WIDGET_BG, fg=DARK_WIDGET_FG, insertbackground=DARK_WIDGET_FG,
+                                 selectbackground=ACCENT, relief="flat", borderwidth=0, font=("Segoe UI", 10))
+        self.log_text.pack(fill="both", expand=True, side="left")
+        scroll = ttk.Scrollbar(log_frame, command=self.log_text.yview)
+        scroll.pack(side="right", fill="y")
+        self.log_text.configure(yscrollcommand=scroll.set)
+
+    # -- page 1: window ----------------------------------------------------------
+    def _build_page_window(self, parent):
+        ttk.Label(parent, text=self.t("step1_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
+        ttk.Button(parent, text=self.t("select_window"), command=self._select_window,
+                   style="Nav.TButton").pack(anchor="w")
+        self.window_label = ttk.Label(parent, text=self.t("no_window_selected"), font=("Segoe UI", 12, "bold"))
+        self.window_label.pack(anchor="w", pady=(12, 0))
+
+        ttk.Separator(parent).pack(fill="x", pady=20)
+        self.keypress_only_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(parent, text=self.t("keypress_only"), variable=self.keypress_only_var).pack(anchor="w")
+
+    # -- page 2: hunt region --------------------------------------------------
+    def _build_page_region(self, parent):
+        ttk.Label(parent, text=self.t("step2_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
+        ttk.Button(parent, text=self.t("set_hunt_region"), command=self._set_hunt_region,
+                   style="Nav.TButton").pack(anchor="w")
+        self.region_label = ttk.Label(parent, text=self.t("region_not_set"), font=("Segoe UI", 12, "bold"))
+        self.region_label.pack(anchor="w", pady=(12, 0))
+
+    # -- page 3: monsters --------------------------------------------------------
+    def _build_page_monsters(self, parent):
+        ttk.Label(parent, text=self.t("step3_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
+        ttk.Button(parent, text=self.t("add_monster"), command=self._add_monster,
+                   style="Nav.TButton").pack(anchor="w")
+
+        list_frame = ttk.Frame(parent)
+        list_frame.pack(fill="both", expand=True, pady=(14, 0))
+        self.monster_listbox = tk.Listbox(list_frame, height=8, font=("Segoe UI", 11),
+                                           bg=DARK_WIDGET_BG, fg=DARK_WIDGET_FG,
+                                           selectbackground=ACCENT, relief="flat", borderwidth=0,
+                                           highlightthickness=0)
+        self.monster_listbox.pack(side="left", fill="both", expand=True)
+        mscroll = ttk.Scrollbar(list_frame, command=self.monster_listbox.yview)
+        mscroll.pack(side="right", fill="y")
+        self.monster_listbox.configure(yscrollcommand=mscroll.set)
+
+        ttk.Button(parent, text=self.t("remove_monster"), command=self._remove_selected_monster).pack(
+            anchor="w", pady=(6, 0))
+        self.monster_count_label = ttk.Label(parent, text=self.t("no_monsters_added"))
+        self.monster_count_label.pack(anchor="w", pady=(6, 0))
+
+    # -- page 4: keys -------------------------------------------------------------
+    def _build_page_keys(self, parent):
+        ttk.Label(parent, text=self.t("step4_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
+        self.skill_keys_var = tk.StringVar(value="1,2,3,4")
+        ttk.Entry(parent, textvariable=self.skill_keys_var, font=("Segoe UI", 13), width=30).pack(anchor="w")
+
+        interval_frame = ttk.Frame(parent)
+        interval_frame.pack(fill="x", pady=(20, 0))
+        self.mob_interval_var = self._add_slider(interval_frame, 0, self.t("mob_interval"), 0.1, 2.0, 0.2)
+        interval_frame.columnconfigure(1, weight=1)
+
+    # -- page 5: start + advanced -------------------------------------------------
+    def _build_page_start(self, parent):
+        self.summary_label = ttk.Label(parent, text="", justify="left", style="Hint.TLabel")
+        self.summary_label.pack(anchor="w", pady=(0, 10))
+
+        controls = ttk.Frame(parent)
+        controls.pack(fill="x", pady=4)
+        self.start_btn = ttk.Button(controls, text=self.t("start"), command=self._start, style="Big.Accent.TButton")
+        self.start_btn.pack(side="left")
+        self.stop_btn = ttk.Button(controls, text=self.t("stop"), command=self._stop, state="disabled",
+                                    style="Nav.TButton")
+        self.stop_btn.pack(side="left", padx=8)
+
+        status_frame = ttk.Frame(parent)
+        status_frame.pack(fill="x", pady=4)
+        self.status_label = ttk.Label(status_frame, text=self.t("status_idle"), font=("Segoe UI", 12, "bold"))
+        self.status_label.pack(side="left")
+        self.kills_label = ttk.Label(status_frame, text=self.t("kills", n=0))
+        self.kills_label.pack(side="left", padx=12)
+        self.runtime_label = ttk.Label(status_frame, text=self.t("runtime", t="0:00"))
+        self.runtime_label.pack(side="left", padx=12)
+
+        self.advanced_visible = tk.BooleanVar(value=False)
+        adv_toggle = ttk.Checkbutton(parent, text=self.t("advanced_settings"), variable=self.advanced_visible,
+                                      command=self._toggle_advanced, style="Toolbutton")
+        adv_toggle.pack(anchor="w", pady=(14, 4))
+
+        self.advanced_frame = ttk.Frame(parent)
+        self._build_advanced_panel(self.advanced_frame)
+        # not packed initially - _toggle_advanced() handles visibility
+
+    def _build_advanced_panel(self, parent):
+        prof_frame = ttk.LabelFrame(parent, text=self.t("profiles"), padding=8)
         prof_frame.pack(fill="x", pady=4)
         self.profile_var = tk.StringVar()
-        self.profile_combo = ttk.Combobox(prof_frame, textvariable=self.profile_var, state="readonly", width=24)
+        self.profile_combo = ttk.Combobox(prof_frame, textvariable=self.profile_var, state="readonly", width=20)
         self.profile_combo.pack(side="left")
         ttk.Button(prof_frame, text=self.t("load_profile"), command=self._load_profile).pack(side="left", padx=4)
         ttk.Button(prof_frame, text=self.t("save_profile"), command=self._save_profile).pack(side="left", padx=4)
         ttk.Button(prof_frame, text=self.t("delete_profile"), command=self._delete_profile).pack(side="left", padx=4)
 
-        # -- window / region ------------------------------------------------
-        win_frame = ttk.LabelFrame(outer, text=self.t("window"), padding=8)
-        win_frame.pack(fill="x", pady=4)
-        ttk.Button(win_frame, text=self.t("select_window"), command=self._select_window).pack(side="left")
-        self.window_label = ttk.Label(win_frame, text=self.t("no_window_selected"))
-        self.window_label.pack(side="left", padx=10)
-
-        region_frame = ttk.LabelFrame(outer, text=self.t("hunt_region"), padding=8)
-        region_frame.pack(fill="x", pady=4)
-        ttk.Button(region_frame, text=self.t("set_hunt_region"), command=self._set_hunt_region).pack(side="left")
-        self.region_label = ttk.Label(region_frame, text=self.t("region_not_set"))
-        self.region_label.pack(side="left", padx=10)
-
-        # -- detection mode ----------------------------------------------------
-        det_frame = ttk.LabelFrame(outer, text=self.t("detection_mode"), padding=8)
+        det_frame = ttk.LabelFrame(parent, text=self.t("detection_mode"), padding=8)
         det_frame.pack(fill="x", pady=4)
-        self.mode_labels = {
-            "hybrid": self.t("mode_hybrid"), "color": self.t("mode_color"),
-            "template": self.t("mode_template"), "ocr": self.t("mode_ocr"),
-        }
         self.mode_var = tk.StringVar(value=self.mode_labels["hybrid"])
         ttk.Combobox(det_frame, textvariable=self.mode_var, state="readonly",
-                     values=list(self.mode_labels.values()), width=36).pack(side="left")
-        if not ocr.is_available():
-            ttk.Label(det_frame, text=self.t("ocr_unavailable"), foreground="#888").pack(side="left", padx=8)
+                     values=list(self.mode_labels.values()), width=36).pack(anchor="w")
+
+        ocr_row = ttk.Frame(det_frame)
+        ocr_row.pack(fill="x", pady=(6, 0))
+        self.ocr_status_var = tk.StringVar()
+        ttk.Label(ocr_row, textvariable=self.ocr_status_var, style="Hint.TLabel",
+                  wraplength=340, justify="left").pack(side="left")
+        self.install_tesseract_btn = ttk.Button(
+            ocr_row, text=self.t("install_tesseract"), command=self._install_tesseract)
+        self._refresh_ocr_status()
 
         color_frame = ttk.Frame(det_frame)
         color_frame.pack(fill="x", pady=(6, 0))
@@ -134,52 +298,37 @@ class BotGUI:
         self.color_label = ttk.Label(color_frame, text=self._hsv_text(self.config.nameplate_hsv))
         self.color_label.pack(side="left", padx=10)
 
-        # -- templates -------------------------------------------------------
-        tpl_frame = ttk.LabelFrame(outer, text=self.t("monster_templates"), padding=8)
-        tpl_frame.pack(fill="x", pady=4)
-        ttk.Button(tpl_frame, text=self.t("add_template"), command=self._add_template).pack(side="left")
-        self.template_count_label = ttk.Label(tpl_frame, text="")
-        self.template_count_label.pack(side="left", padx=10)
-
-        ttk.Label(outer, text=self.t("target_monsters")).pack(anchor="w", pady=(8, 0))
+        ttk.Label(parent, text=self.t("target_monsters")).pack(anchor="w", pady=(8, 0))
         self.target_monsters_var = tk.StringVar()
-        ttk.Entry(outer, textvariable=self.target_monsters_var).pack(fill="x")
+        ttk.Entry(parent, textvariable=self.target_monsters_var).pack(fill="x")
 
-        # -- mode toggles -----------------------------------------------------
-        toggles = ttk.Frame(outer)
+        toggles = ttk.Frame(parent)
         toggles.pack(fill="x", pady=6)
-        self.keypress_only_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(toggles, text=self.t("keypress_only"), variable=self.keypress_only_var).pack(anchor="w")
         self.auto_tab_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(toggles, text=self.t("auto_tab"), variable=self.auto_tab_var).pack(anchor="w")
 
-        # -- keys / timings ----------------------------------------------------
-        keys_frame = ttk.LabelFrame(outer, text=self.t("settings"), padding=8)
+        keys_frame = ttk.LabelFrame(parent, text=self.t("settings"), padding=8)
         keys_frame.pack(fill="x", pady=4)
-
-        ttk.Label(keys_frame, text=self.t("skill_keys")).grid(row=0, column=0, sticky="w")
-        self.skill_keys_var = tk.StringVar(value="1,2,3,4")
-        ttk.Entry(keys_frame, textvariable=self.skill_keys_var, width=20).grid(row=0, column=1, sticky="ew", padx=6)
-
-        ttk.Label(keys_frame, text=self.t("loot_key")).grid(row=1, column=0, sticky="w")
+        ttk.Label(keys_frame, text=self.t("loot_key")).grid(row=0, column=0, sticky="w")
         self.loot_key_var = tk.StringVar(value="")
-        ttk.Entry(keys_frame, textvariable=self.loot_key_var, width=20).grid(row=1, column=1, sticky="ew", padx=6)
+        ttk.Entry(keys_frame, textvariable=self.loot_key_var, width=20).grid(row=0, column=1, sticky="ew", padx=6)
 
-        self.skill_interval_var = self._add_slider(keys_frame, 2, self.t("skill_interval"), 0.05, 1.0, 0.15)
-        self.mob_interval_var = self._add_slider(keys_frame, 3, self.t("mob_interval"), 0.1, 2.0, 0.2)
-        self.auto_tab_interval_var = self._add_slider(keys_frame, 4, self.t("auto_tab_interval"), 0.5, 10.0, 3.0)
-        self.threshold_var = self._add_slider(keys_frame, 5, self.t("template_threshold"), 0.10, 0.90, 0.40)
-        self.reclick_var = self._add_slider(keys_frame, 6, self.t("reclick_lockout"), 0.0, 8.0, 2.5)
+        # (mob_interval - "wait between monsters" - lives on the Keys wizard
+        # page since it's the one timing knob most people actually want to
+        # tune; the rest stay here for people who want finer control.)
+        self.skill_interval_var = self._add_slider(keys_frame, 1, self.t("skill_interval"), 0.05, 1.0, 0.15)
+        self.auto_tab_interval_var = self._add_slider(keys_frame, 2, self.t("auto_tab_interval"), 0.5, 10.0, 3.0)
+        self.threshold_var = self._add_slider(keys_frame, 3, self.t("template_threshold"), 0.10, 0.90, 0.40)
+        self.reclick_var = self._add_slider(keys_frame, 4, self.t("reclick_lockout"), 0.0, 8.0, 2.5)
         keys_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(keys_frame, text=self.t("input_method")).grid(row=7, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(keys_frame, text=self.t("input_method")).grid(row=5, column=0, sticky="w", pady=(6, 0))
         self.input_method_var = tk.StringVar(value="auto")
         ttk.Combobox(keys_frame, textvariable=self.input_method_var, state="readonly",
                      values=["auto", "sendinput", "pydirectinput", "keyboard"]).grid(
-            row=7, column=1, sticky="ew", padx=6, pady=(6, 0))
+            row=5, column=1, sticky="ew", padx=6, pady=(6, 0))
 
-        # -- HP bar --------------------------------------------------------------
-        hp_frame = ttk.LabelFrame(outer, text=self.t("hp_bar"), padding=8)
+        hp_frame = ttk.LabelFrame(parent, text=self.t("hp_bar"), padding=8)
         hp_frame.pack(fill="x", pady=4)
         hp_btns = ttk.Frame(hp_frame)
         hp_btns.pack(fill="x")
@@ -188,8 +337,7 @@ class BotGUI:
         self.hp_bar_label = ttk.Label(hp_frame, text=self.t("hp_bar_not_set"))
         self.hp_bar_label.pack(anchor="w", pady=(4, 0))
 
-        # -- buffs -----------------------------------------------------------
-        buff_frame = ttk.LabelFrame(outer, text=self.t("buffs"), padding=8)
+        buff_frame = ttk.LabelFrame(parent, text=self.t("buffs"), padding=8)
         buff_frame.pack(fill="x", pady=4)
         self.buffs_enabled_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(buff_frame, text=self.t("enable_buffs"), variable=self.buffs_enabled_var).grid(
@@ -200,33 +348,11 @@ class BotGUI:
         self.buff_interval_var = self._add_slider(buff_frame, 2, self.t("buff_interval"), 5.0, 600.0, 60.0)
         buff_frame.columnconfigure(1, weight=1)
 
-        # -- controls --------------------------------------------------------
-        controls = ttk.Frame(outer)
-        controls.pack(fill="x", pady=8)
-        self.start_btn = ttk.Button(controls, text=self.t("start"), command=self._start)
-        self.start_btn.pack(side="left")
-        self.stop_btn = ttk.Button(controls, text=self.t("stop"), command=self._stop, state="disabled")
-        self.stop_btn.pack(side="left", padx=6)
-
-        status_frame = ttk.Frame(outer)
-        status_frame.pack(fill="x")
-        self.status_label = ttk.Label(status_frame, text=self.t("status_idle"), font=("Segoe UI", 10, "bold"))
-        self.status_label.pack(side="left")
-        self.kills_label = ttk.Label(status_frame, text=self.t("kills", n=0))
-        self.kills_label.pack(side="left", padx=12)
-        self.runtime_label = ttk.Label(status_frame, text=self.t("runtime", t="0:00"))
-        self.runtime_label.pack(side="left", padx=12)
-
-        ttk.Label(outer, text=self.t("hotkey_hint"), foreground="#888").pack(anchor="w", pady=(0, 4))
-
-        # -- log ---------------------------------------------------------------
-        log_frame = ttk.LabelFrame(outer, text=self.t("log"), padding=4)
-        log_frame.pack(fill="both", expand=True, pady=4)
-        self.log_text = tk.Text(log_frame, height=10, state="disabled", wrap="word")
-        self.log_text.pack(fill="both", expand=True, side="left")
-        scroll = ttk.Scrollbar(log_frame, command=self.log_text.yview)
-        scroll.pack(side="right", fill="y")
-        self.log_text.configure(yscrollcommand=scroll.set)
+    def _toggle_advanced(self):
+        if self.advanced_visible.get():
+            self.advanced_frame.pack(fill="both", expand=True)
+        else:
+            self.advanced_frame.pack_forget()
 
     def _add_slider(self, parent, row, label, lo, hi, default):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=2)
@@ -247,7 +373,93 @@ class BotGUI:
         return f"H{h0}-{h1} S{s0}-{s1} V{v0}-{v1}"
 
     # ------------------------------------------------------------------
-    # window / region / templates
+    # wizard navigation
+    # ------------------------------------------------------------------
+    def _show_page(self, index):
+        for frame in self.page_frames:
+            frame.pack_forget()
+        self.page_frames[index].pack(fill="both", expand=True)
+        self.current_page = index
+
+        for i, lbl in enumerate(self.step_labels):
+            if i == index:
+                lbl.configure(style="StepCurrent.TLabel")
+            elif i < index:
+                lbl.configure(style="StepDone.TLabel")
+            else:
+                lbl.configure(style="StepTodo.TLabel")
+
+        self.back_btn.configure(state=("disabled" if index == PAGE_WINDOW else "normal"))
+        if index == PAGE_START:
+            self.next_btn.pack_forget()
+            self._update_summary()
+        else:
+            self.next_btn.pack(side="right")
+
+    def _skip_region_and_monsters(self):
+        return self.keypress_only_var.get()
+
+    def _go_next(self):
+        if self.current_page == PAGE_WINDOW:
+            if self.selected_hwnd is None:
+                messagebox.showwarning(self.t("next"), self.t("err_no_window"))
+                return
+            self._show_page(PAGE_KEYS if self._skip_region_and_monsters() else PAGE_REGION)
+            return
+
+        if self.current_page == PAGE_REGION:
+            if self.hunt_region is None:
+                messagebox.showwarning(self.t("next"), self.t("err_no_region"))
+                return
+            self._show_page(PAGE_MONSTERS)
+            return
+
+        if self.current_page == PAGE_MONSTERS:
+            if not self.monsters:
+                messagebox.showwarning(self.t("next"), self.t("err_no_monsters"))
+                return
+            self._show_page(PAGE_KEYS)
+            return
+
+        if self.current_page == PAGE_KEYS:
+            if not self.skill_keys_var.get().strip():
+                messagebox.showwarning(self.t("next"), self.t("err_no_keys"))
+                return
+            self._show_page(PAGE_START)
+            return
+
+    def _go_back(self):
+        if self.current_page == PAGE_KEYS:
+            self._show_page(PAGE_WINDOW if self._skip_region_and_monsters() else PAGE_MONSTERS)
+            return
+        if self.current_page == PAGE_START:
+            self._show_page(PAGE_KEYS)
+            return
+        if self.current_page > PAGE_WINDOW:
+            self._show_page(self.current_page - 1)
+
+    def _update_summary(self):
+        window_txt = self.selected_window_title or "-"
+        if self.hunt_region:
+            l, t, r, b = self.hunt_region
+            region_txt = f"{r - l}x{b - t}"
+        else:
+            region_txt = "-" if not self.keypress_only_var.get() else self.t("keypress_only")
+        monsters_txt = ", ".join(m["name"] for m in self.monsters) if self.monsters else "-"
+        keys_txt = self.skill_keys_var.get()
+
+        lines = [
+            self.t("summary_window", v=window_txt),
+            self.t("summary_region", v=region_txt),
+            self.t("summary_monsters", v=monsters_txt),
+            self.t("summary_keys", v=keys_txt),
+            "",
+            self.t("ready_to_start"),
+        ]
+        self.summary_label.configure(text="\n".join(lines))
+
+    # ------------------------------------------------------------------
+    # window / region
     # ------------------------------------------------------------------
     def _select_window(self):
         windows = winutil.enumerate_top_level_windows()
@@ -257,9 +469,10 @@ class BotGUI:
 
         picker = tk.Toplevel(self.root)
         picker.title(self.t("select_window"))
-        picker.geometry("420x360")
-        listbox = tk.Listbox(picker)
-        listbox.pack(fill="both", expand=True, padx=8, pady=8)
+        picker.geometry("460x400")
+        listbox = tk.Listbox(picker, font=("Segoe UI", 11), bg=DARK_WIDGET_BG, fg=DARK_WIDGET_FG,
+                              selectbackground=ACCENT, relief="flat", borderwidth=0, highlightthickness=0)
+        listbox.pack(fill="both", expand=True, padx=10, pady=10)
         for _hwnd, title, _rect in windows:
             listbox.insert("end", title)
 
@@ -273,7 +486,8 @@ class BotGUI:
             self.window_label.configure(text=title)
             picker.destroy()
 
-        ttk.Button(picker, text="OK", command=confirm).pack(pady=(0, 8))
+        listbox.bind("<Double-Button-1>", lambda _e: confirm())
+        ttk.Button(picker, text="OK", command=confirm, style="Nav.TButton").pack(pady=(0, 10))
 
     def _bring_selected_window_front(self):
         if self.selected_hwnd is not None:
@@ -290,35 +504,133 @@ class BotGUI:
         left, top, right, bottom = rect
         self.region_label.configure(text=self.t("region_set", w=right - left, h=bottom - top, x=left, y=top))
 
-    def _add_template(self):
+    # ------------------------------------------------------------------
+    # monsters (combined template + color calibration)
+    # ------------------------------------------------------------------
+    def _add_monster(self):
         self._bring_selected_window_front()
         rect = select_screen_region(self.root, self.t("template_wizard_hint"))
         if rect is None:
             return
 
-        name = simpledialog.askstring(self.t("add_template"), self.t("template_name_prompt"), parent=self.root)
+        name = simpledialog.askstring(self.t("add_monster"), self.t("template_name_prompt"), parent=self.root)
         if not name:
             return
-        filename = sanitize_template_basename(name) + ".png"
-        path = os.path.join(MONSTERS_DIR, filename)
+        base = sanitize_template_basename(name)
+        path, is_variant = self._next_template_path(base)
 
         try:
             img = winutil.grab_screen(rect)
             os.makedirs(MONSTERS_DIR, exist_ok=True)
             img.save(path)
         except Exception as exc:
-            messagebox.showerror(self.t("add_template"), str(exc))
+            messagebox.showerror(self.t("add_monster"), str(exc))
             return
 
-        self._log(f"📸 Template saved: {filename}")
-        self._refresh_template_count()
+        try:
+            import numpy as np
+            bgr = np.array(img)[:, :, ::-1]
+            hsv_range = color_detect.dominant_text_hsv(bgr)
+            if hsv_range is not None:
+                self.config.nameplate_hsv = hsv_range
+                if hasattr(self, "color_label"):
+                    self.color_label.configure(text=self._hsv_text(hsv_range))
+        except Exception:
+            pass  # color auto-calibration is a bonus, template save already succeeded
 
-    def _refresh_template_count(self):
-        templates = load_monster_templates(MONSTERS_DIR)
-        self.template_count_label.configure(text=self.t("templates_loaded", n=len(templates)))
+        self._register_monster(base, path)
+        if is_variant:
+            self._log(f"📸 {base}: extra pose/angle added ({os.path.basename(path)}) - improves matching")
+        else:
+            self._log(f"📸 {base} added (template + color calibrated)")
+
+    @staticmethod
+    def _next_template_path(base):
+        """First save for `base` -> base.png. Adding the same name again
+        (a different pose/angle/animation frame of the same monster) stacks
+        as base__v2.png, base__v3.png, ... - detection.py matches all of
+        them and reports the best hit under the shared base name.
+        Returns (path, is_variant)."""
+        primary = os.path.join(MONSTERS_DIR, base + ".png")
+        if not os.path.exists(primary):
+            return primary, False
+        n = 2
+        while True:
+            candidate = os.path.join(MONSTERS_DIR, f"{base}__v{n}.png")
+            if not os.path.exists(candidate):
+                return candidate, True
+            n += 1
+
+    def _register_monster(self, name, path):
+        if any(m["name"] == name for m in self.monsters):
+            return
+        self.monsters.append({"name": name, "path": path})
+        self.monster_listbox.insert("end", name)
+        self._sync_target_monsters()
+        self.monster_count_label.configure(text=self.t("monsters_added", n=len(self.monsters)))
+
+    def _remove_selected_monster(self):
+        sel = self.monster_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        del self.monsters[idx]
+        self.monster_listbox.delete(idx)
+        self._sync_target_monsters()
+        text = self.t("monsters_added", n=len(self.monsters)) if self.monsters else self.t("no_monsters_added")
+        self.monster_count_label.configure(text=text)
+
+    def _sync_target_monsters(self):
+        if hasattr(self, "target_monsters_var"):
+            self.target_monsters_var.set(",".join(m["name"] for m in self.monsters))
+
+    def _load_existing_monsters(self):
+        """Pre-fill step 3 with templates already on disk from a previous run.
+
+        Variant files (wolf__v2.png, wolf__v3.png, ...) collapse into one
+        "wolf" list entry, same as they do for matching.
+        """
+        for tpl in load_monster_templates(MONSTERS_DIR):
+            self._register_monster(base_monster_name(tpl.name), tpl.path)
 
     # ------------------------------------------------------------------
-    # color / HP bar calibration
+    # OCR engine status / installer
+    # ------------------------------------------------------------------
+    def _refresh_ocr_status(self):
+        engine = ocr.engine_name()
+        if engine == "tesseract":
+            self.ocr_status_var.set(self.t("ocr_engine_tesseract"))
+            self.install_tesseract_btn.pack_forget()
+        elif engine == "easyocr":
+            self.ocr_status_var.set(self.t("ocr_engine_easyocr"))
+            self.install_tesseract_btn.pack_forget()
+        else:
+            self.ocr_status_var.set(self.t("ocr_unavailable"))
+            self.install_tesseract_btn.pack(side="left", padx=4)
+
+    def _install_tesseract(self):
+        if not messagebox.askyesno(self.t("install_tesseract"), self.t("install_tesseract_confirm")):
+            return
+        self.install_tesseract_btn.configure(state="disabled")
+        self._log("⬇ " + self.t("install_tesseract_starting"))
+
+        def worker():
+            ok = tesseract_installer.download_and_install(progress_cb=self._log_threadsafe)
+            self.root.after(0, self._on_tesseract_install_done, ok)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_tesseract_install_done(self, ok):
+        self.install_tesseract_btn.configure(state="normal")
+        ocr.reset_cache()
+        self._refresh_ocr_status()
+        if ok and ocr.engine_name() == "tesseract":
+            self._log("✅ " + self.t("install_tesseract_success"))
+        else:
+            self._log("❌ " + self.t("install_tesseract_failed"))
+
+    # ------------------------------------------------------------------
+    # color / HP bar calibration (advanced)
     # ------------------------------------------------------------------
     def _calibrate_color(self):
         self._bring_selected_window_front()
@@ -370,6 +682,7 @@ class BotGUI:
         return {
             "hunt_region": list(self.hunt_region) if self.hunt_region else None,
             "selected_window_title": self.selected_window_title,
+            "monsters": [m["name"] for m in self.monsters],
             "detection_mode": self._mode_key(),
             "nameplate_hsv": [list(self.config.nameplate_hsv[0]), list(self.config.nameplate_hsv[1])],
             "target_monsters": self.target_monsters_var.get(),
@@ -432,6 +745,10 @@ class BotGUI:
             self.color_label.configure(text=self._hsv_text(self.config.nameplate_hsv))
 
         self.target_monsters_var.set(data.get("target_monsters", ""))
+        for saved_name in data.get("monsters", []):
+            existing_path = os.path.join(MONSTERS_DIR, sanitize_template_basename(saved_name) + ".png")
+            self._register_monster(saved_name, existing_path)
+
         self.keypress_only_var.set(data.get("keypress_only", False))
         self.auto_tab_var.set(data.get("auto_tab", False))
         self.auto_tab_interval_var.set(data.get("auto_tab_interval", 3.0))
@@ -453,6 +770,7 @@ class BotGUI:
         self.buff_interval_var.set(data.get("buff_interval", 60.0))
 
         self._log("📂 " + self.t("profile_loaded", name=name))
+        self._show_page(PAGE_START)
 
     def _delete_profile(self):
         name = self.profile_var.get().strip()
@@ -470,10 +788,10 @@ class BotGUI:
     def _collect_config(self):
         c = self.config
         c.hunt_region = self.hunt_region
+        c.game_hwnd = self.selected_hwnd
         c.detection_mode = self._mode_key()
-        c.target_monsters = [
-            s.strip().lower() for s in self.target_monsters_var.get().split(",") if s.strip()
-        ]
+        typed_targets = [s.strip().lower() for s in self.target_monsters_var.get().split(",") if s.strip()]
+        c.target_monsters = typed_targets or [m["name"].lower() for m in self.monsters]
         c.keypress_only = self.keypress_only_var.get()
         c.auto_tab = self.auto_tab_var.get()
         c.auto_tab_interval = self.auto_tab_interval_var.get()
@@ -491,6 +809,10 @@ class BotGUI:
 
     def _start(self):
         self._collect_config()
+
+        if self.selected_hwnd is None:
+            messagebox.showwarning(self.t("start"), self.t("err_no_window"))
+            return
 
         if not self.config.keypress_only and self.config.hunt_region is None:
             messagebox.showwarning(self.t("start"), self.t("err_no_region"))

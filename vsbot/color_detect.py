@@ -57,9 +57,47 @@ def sample_hsv_at(bgr_image, x, y, tolerance=(10, 60, 60)):
     return lower, upper
 
 
+def dominant_text_hsv(bgr_crop, sat_min=80, val_min=80, hue_tolerance=10, min_pixels=8):
+    """Auto-derive an HSV range from the "wizard" monster-selection crop.
+
+    Nameplate text is a small patch of flat, saturated color sitting on a
+    much less saturated 3D-scene background - so instead of asking the
+    user to click precisely on a single letter (the old eyedropper flow),
+    this just finds the most common highly-saturated hue in the whole
+    selection and uses that. One drag-select over the monster now both
+    saves a template AND calibrates color - no separate step.
+
+    Returns None if nothing sufficiently saturated was found (crop was too
+    plain/background-only); the caller should keep the previous
+    calibration in that case.
+    """
+    hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
+    sat, val = hsv[:, :, 1], hsv[:, :, 2]
+    mask = (sat >= sat_min) & (val >= val_min)
+    pixels = hsv[mask]
+    if len(pixels) < min_pixels:
+        return None
+
+    hues = pixels[:, 0].astype(np.int32)
+    hist = np.bincount(hues, minlength=180)
+    peak_hue = int(np.argmax(hist))
+
+    s_vals, v_vals = pixels[:, 1], pixels[:, 2]
+    lower = (max(peak_hue - hue_tolerance, 0), max(int(np.percentile(s_vals, 10)), 0),
+             max(int(np.percentile(v_vals, 10)), 0))
+    upper = (min(peak_hue + hue_tolerance, 179), 255, 255)
+    return lower, upper
+
+
 def find_candidates(bgr_image, hsv_range: HSVRange = DEFAULT_NAMEPLATE_HSV,
-                     min_area=15, max_area=6000, max_results=12) -> List[Candidate]:
-    """Return connected-component bounding boxes matching an HSV range."""
+                     min_area=15, max_area=6000, max_results=12, prefer_point=None) -> List[Candidate]:
+    """Return connected-component bounding boxes matching an HSV range.
+
+    prefer_point: optional (x, y) to sort by proximity to instead of by
+    blob size - pass the scene's center (roughly where the player stands)
+    so that, with several monsters on screen, the nearest one is tried
+    first, the way a player naturally would.
+    """
     hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
     lower, upper = hsv_range
     mask = cv2.inRange(hsv, np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8))
@@ -78,8 +116,12 @@ def find_candidates(bgr_image, hsv_range: HSVRange = DEFAULT_NAMEPLATE_HSV,
         x, y, w, h = cv2.boundingRect(cnt)
         candidates.append(Candidate(x, y, w, h))
 
-    # largest first - a stronger color match is usually a cleaner name-plate
-    candidates.sort(key=lambda c: c.w * c.h, reverse=True)
+    if prefer_point is not None:
+        px, py = prefer_point
+        candidates.sort(key=lambda c: (c.x + c.w / 2 - px) ** 2 + (c.y + c.h / 2 - py) ** 2)
+    else:
+        # largest first - a stronger color match is usually a cleaner name-plate
+        candidates.sort(key=lambda c: c.w * c.h, reverse=True)
     return candidates[:max_results]
 
 

@@ -59,7 +59,21 @@ _STRINGS = {
     "mode_color": {"EN": "Color only (no templates needed)", "TR": "Sadece renk (şablon gerekmez)"},
     "mode_template": {"EN": "Template only (full-frame)", "TR": "Sadece şablon (tüm ekran)"},
     "mode_ocr": {"EN": "OCR (reads the name, needs easyocr)", "TR": "OCR (ismi okur, easyocr gerekir)"},
-    "ocr_unavailable": {"EN": "easyocr not installed - OCR mode disabled", "TR": "easyocr kurulu değil - OCR modu kapalı"},
+    "ocr_unavailable": {"EN": "No OCR engine found - OCR mode disabled (Tesseract or easyocr needed)",
+                         "TR": "OCR motoru bulunamadı - OCR modu kapalı (Tesseract veya easyocr gerekir)"},
+    "ocr_engine_tesseract": {"EN": "OCR: Tesseract (fast)", "TR": "OCR: Tesseract (hızlı)"},
+    "ocr_engine_easyocr": {"EN": "OCR: easyocr (slower)", "TR": "OCR: easyocr (yavaş)"},
+    "install_tesseract": {"EN": "🚀 Install Tesseract", "TR": "🚀 Tesseract'ı Kur"},
+    "install_tesseract_confirm": {
+        "EN": "This downloads the official Tesseract-OCR installer from GitHub (~50MB) and "
+              "runs it silently. Windows may ask for your permission (UAC) - please allow it. Continue?",
+        "TR": "Bu işlem GitHub'dan resmi Tesseract-OCR kurulum dosyasını indirir (~50MB) ve "
+              "sessizce çalıştırır. Windows izin isteyebilir (UAC) - lütfen izin verin. Devam edilsin mi?"},
+    "install_tesseract_starting": {"EN": "Starting Tesseract install...", "TR": "Tesseract kurulumu başlıyor..."},
+    "install_tesseract_success": {"EN": "Tesseract installed - OCR confirmation is now active.",
+                                   "TR": "Tesseract kuruldu - OCR doğrulama artık aktif."},
+    "install_tesseract_failed": {"EN": "Install didn't complete - hybrid/color/template modes still work fine.",
+                                  "TR": "Kurulum tamamlanamadı - hibrit/renk/şablon modları yine de sorunsuz çalışır."},
     "calibrate_color": {"EN": "🎨 Calibrate Nameplate Color", "TR": "🎨 İsim Etiketi Rengini Kalibre Et"},
     "calibrate_hint": {"EN": "Click once directly on a monster's name text.", "TR": "Bir canavarın isim yazısının tam üzerine bir kez tıklayın."},
     "color_calibrated": {"EN": "Nameplate color calibrated", "TR": "İsim etiketi rengi kalibre edildi"},
@@ -80,6 +94,39 @@ _STRINGS = {
     "profile_loaded": {"EN": "Profile '{name}' loaded", "TR": "'{name}' profili yüklendi"},
     "profile_deleted": {"EN": "Profile '{name}' deleted", "TR": "'{name}' profili silindi"},
     "no_profile_selected": {"EN": "Select a profile first", "TR": "Önce bir profil seçin"},
+
+    "step1_title": {"EN": "1. Game Window", "TR": "1. Oyun Penceresi"},
+    "step2_title": {"EN": "2. Hunt Region", "TR": "2. Av Bölgesi"},
+    "step3_title": {"EN": "3. Monsters", "TR": "3. Canavarlar"},
+    "step4_title": {"EN": "4. Attack Keys", "TR": "4. Saldırı Tuşları"},
+    "step5_title": {"EN": "5. Start", "TR": "5. Başlat"},
+    "next": {"EN": "Next ▶", "TR": "İleri ▶"},
+    "back": {"EN": "◀ Back", "TR": "◀ Geri"},
+    "step1_help": {"EN": "Pick the game's window so the bot knows where to click and type.",
+                    "TR": "Botun nereye tıklayıp tuş basacağını bilmesi için oyun penceresini seçin."},
+    "step2_help": {"EN": "Drag a box over the area where monsters/name-plates appear on screen.",
+                    "TR": "Canavarların/isim etiketlerinin göründüğü ekran alanının üzerine bir kutu çizin."},
+    "step3_help": {"EN": "For each monster you want to hunt: drag a box over its name, type a name. "
+                          "One step does it all - template + color calibration, automatically. "
+                          "Tip: add the same monster again from a different angle/pose to improve matching.",
+                    "TR": "Avlamak istediğiniz her canavar için: isminin üzerine bir kutu çizin, bir isim yazın. "
+                          "Tek adımda hem şablon hem renk kalibrasyonu otomatik yapılır. "
+                          "İpucu: aynı canavarı farklı açı/pozdan tekrar eklerseniz tespit gücü artar."},
+    "step4_help": {"EN": "Which keys should the bot press to attack? Comma-separated, in order.",
+                    "TR": "Bot saldırmak için hangi tuşlara bassın? Virgülle ayırın, sırasıyla."},
+    "add_monster": {"EN": "➕ Add Monster", "TR": "➕ Canavar Ekle"},
+    "remove_monster": {"EN": "🗑 Remove", "TR": "🗑 Kaldır"},
+    "no_monsters_added": {"EN": "No monsters added yet", "TR": "Henüz canavar eklenmedi"},
+    "monsters_added": {"EN": "{n} monster(s) added", "TR": "{n} canavar eklendi"},
+    "err_no_monsters": {"EN": "Add at least one monster (or enable Keypress Only mode).",
+                         "TR": "En az bir canavar ekleyin (ya da Sadece Tuş Vuruşu modunu açın)."},
+    "err_no_keys": {"EN": "Enter at least one attack key.", "TR": "En az bir saldırı tuşu girin."},
+    "advanced_settings": {"EN": "⚙ Advanced Settings", "TR": "⚙ Gelişmiş Ayarlar"},
+    "summary_window": {"EN": "Window: {v}", "TR": "Pencere: {v}"},
+    "summary_region": {"EN": "Region: {v}", "TR": "Bölge: {v}"},
+    "summary_monsters": {"EN": "Monsters: {v}", "TR": "Canavarlar: {v}"},
+    "summary_keys": {"EN": "Keys: {v}", "TR": "Tuşlar: {v}"},
+    "ready_to_start": {"EN": "Ready. Press Start when you are.", "TR": "Hazır. İstediğinizde Başlat'a basın."},
 }
 
 
