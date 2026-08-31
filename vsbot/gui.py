@@ -1,7 +1,9 @@
-"""Tkinter GUI: a 5-step wizard (Window -> Region -> Monsters -> Keys -> Start).
+"""Tkinter GUI: a 4-step wizard (Window -> Monsters -> Keys -> Start).
 
-Advanced knobs (detection mode, HP bar, buffs, thresholds, profiles) live in
-a collapsed panel on the last page so the default path stays short.
+The hunt region is just the selected game window's client area - no
+separate "draw a box" step for it. Advanced knobs (detection mode, HP bar,
+buffs, thresholds) live in a collapsed panel on the last page so the
+default path stays short.
 """
 
 import os
@@ -13,7 +15,7 @@ from tkinter import messagebox, simpledialog, ttk
 
 import sv_ttk
 
-from . import color_detect, ocr, profiles, tesseract_installer, winutil
+from . import color_detect, ocr, tesseract_installer, winutil
 from .bot_engine import BotConfig, BotEngine
 from .detection import base_monster_name, load_monster_templates, sanitize_template_basename
 from .i18n import Translator, get_language, save_language
@@ -22,8 +24,8 @@ from .region_select import pick_screen_point, select_screen_region
 
 MONSTERS_DIR = data_path("monsters")
 
-STEP_KEYS = ["step1_title", "step2_title", "step3_title", "step4_title", "step5_title"]
-PAGE_WINDOW, PAGE_REGION, PAGE_MONSTERS, PAGE_KEYS, PAGE_START = range(5)
+STEP_KEYS = ["step1_title", "step2_title", "step3_title", "step4_title"]
+PAGE_WINDOW, PAGE_MONSTERS, PAGE_KEYS, PAGE_START = range(4)
 
 ACCENT = "#3b82f6"
 ACCENT_DIM = "#93a3b8"
@@ -127,7 +129,6 @@ class BotGUI:
         self.current_page = PAGE_WINDOW
         self._build_ui()
         self._load_existing_monsters()
-        self._refresh_profile_list()
         self._register_stop_hotkey()
         self._tick_status()
         self._show_page(PAGE_WINDOW)
@@ -143,7 +144,7 @@ class BotGUI:
         step_bar = ttk.Frame(root_frame)
         step_bar.pack(fill="x", pady=(0, 20))
         self.step_labels = []
-        step_glyphs = ["①", "②", "③", "④", "⑤"]
+        step_glyphs = ["①", "②", "③", "④"]
         for i, key in enumerate(STEP_KEYS):
             lbl = ttk.Label(step_bar, text=f"{step_glyphs[i]} {self.t(key)}")
             lbl.pack(side="left")
@@ -159,9 +160,8 @@ class BotGUI:
         self.page_container = ttk.Frame(root_frame)
         self.page_container.pack(fill="x")
 
-        self.page_frames = [ttk.Frame(self.page_container) for _ in range(5)]
+        self.page_frames = [ttk.Frame(self.page_container) for _ in range(4)]
         self._build_page_window(self.page_frames[PAGE_WINDOW])
-        self._build_page_region(self.page_frames[PAGE_REGION])
         self._build_page_monsters(self.page_frames[PAGE_MONSTERS])
         self._build_page_keys(self.page_frames[PAGE_KEYS])
         self._build_page_start(self.page_frames[PAGE_START])
@@ -199,17 +199,9 @@ class BotGUI:
         self.keypress_only_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(parent, text=self.t("keypress_only"), variable=self.keypress_only_var).pack(anchor="w")
 
-    # -- page 2: hunt region --------------------------------------------------
-    def _build_page_region(self, parent):
-        ttk.Label(parent, text=self.t("step2_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
-        ttk.Button(parent, text=self.t("set_hunt_region"), command=self._set_hunt_region,
-                   style="Nav.TButton").pack(anchor="w")
-        self.region_label = ttk.Label(parent, text=self.t("region_not_set"), font=("Segoe UI", 12, "bold"))
-        self.region_label.pack(anchor="w", pady=(12, 0))
-
-    # -- page 3: monsters --------------------------------------------------------
+    # -- page 2: monsters --------------------------------------------------------
     def _build_page_monsters(self, parent):
-        ttk.Label(parent, text=self.t("step3_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
+        ttk.Label(parent, text=self.t("step2_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
         ttk.Button(parent, text=self.t("add_monster"), command=self._add_monster,
                    style="Nav.TButton").pack(anchor="w")
 
@@ -229,9 +221,9 @@ class BotGUI:
         self.monster_count_label = ttk.Label(parent, text=self.t("no_monsters_added"))
         self.monster_count_label.pack(anchor="w", pady=(6, 0))
 
-    # -- page 4: keys -------------------------------------------------------------
+    # -- page 3: keys -------------------------------------------------------------
     def _build_page_keys(self, parent):
-        ttk.Label(parent, text=self.t("step4_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
+        ttk.Label(parent, text=self.t("step3_help"), wraplength=640, justify="left").pack(anchor="w", pady=(0, 16))
         self.skill_keys_var = tk.StringVar(value="1,2,3,4")
         ttk.Entry(parent, textvariable=self.skill_keys_var, font=("Segoe UI", 13), width=30).pack(anchor="w")
 
@@ -240,7 +232,7 @@ class BotGUI:
         self.mob_interval_var = self._add_slider(interval_frame, 0, self.t("mob_interval"), 0.1, 2.0, 0.2)
         interval_frame.columnconfigure(1, weight=1)
 
-    # -- page 5: start + advanced -------------------------------------------------
+    # -- page 4: start + advanced -------------------------------------------------
     def _build_page_start(self, parent):
         self.summary_label = ttk.Label(parent, text="", justify="left", style="Hint.TLabel")
         self.summary_label.pack(anchor="w", pady=(0, 10))
@@ -267,7 +259,7 @@ class BotGUI:
                                       command=self._toggle_advanced, style="Toolbutton")
         adv_toggle.pack(anchor="w", pady=(14, 4))
 
-        # Advanced settings can get tall (profiles + detection + keys + HP
+        # Advanced settings can get tall (detection + keys + HP
         # bar + buffs) - give this section its own bounded, scrollable area
         # instead of letting it push the nav/log off the bottom of the
         # window with no way to reach them.
@@ -291,15 +283,6 @@ class BotGUI:
         # not packed initially - _toggle_advanced() handles visibility
 
     def _build_advanced_panel(self, parent):
-        prof_frame = ttk.LabelFrame(parent, text=self.t("profiles"), padding=8)
-        prof_frame.pack(fill="x", pady=4)
-        self.profile_var = tk.StringVar()
-        self.profile_combo = ttk.Combobox(prof_frame, textvariable=self.profile_var, state="readonly", width=20)
-        self.profile_combo.pack(side="left")
-        ttk.Button(prof_frame, text=self.t("load_profile"), command=self._load_profile).pack(side="left", padx=4)
-        ttk.Button(prof_frame, text=self.t("save_profile"), command=self._save_profile).pack(side="left", padx=4)
-        ttk.Button(prof_frame, text=self.t("delete_profile"), command=self._delete_profile).pack(side="left", padx=4)
-
         det_frame = ttk.LabelFrame(parent, text=self.t("detection_mode"), padding=8)
         det_frame.pack(fill="x", pady=4)
         self.mode_var = tk.StringVar(value=self.mode_labels["color"])
@@ -419,7 +402,7 @@ class BotGUI:
         else:
             self.next_btn.pack(side="right")
 
-    def _skip_region_and_monsters(self):
+    def _skip_monsters(self):
         return self.keypress_only_var.get()
 
     def _go_next(self):
@@ -427,14 +410,7 @@ class BotGUI:
             if self.selected_hwnd is None:
                 messagebox.showwarning(self.t("next"), self.t("err_no_window"))
                 return
-            self._show_page(PAGE_KEYS if self._skip_region_and_monsters() else PAGE_REGION)
-            return
-
-        if self.current_page == PAGE_REGION:
-            if self.hunt_region is None:
-                messagebox.showwarning(self.t("next"), self.t("err_no_region"))
-                return
-            self._show_page(PAGE_MONSTERS)
+            self._show_page(PAGE_KEYS if self._skip_monsters() else PAGE_MONSTERS)
             return
 
         if self.current_page == PAGE_MONSTERS:
@@ -453,7 +429,7 @@ class BotGUI:
 
     def _go_back(self):
         if self.current_page == PAGE_KEYS:
-            self._show_page(PAGE_WINDOW if self._skip_region_and_monsters() else PAGE_MONSTERS)
+            self._show_page(PAGE_WINDOW if self._skip_monsters() else PAGE_MONSTERS)
             return
         if self.current_page == PAGE_START:
             self._show_page(PAGE_KEYS)
@@ -463,17 +439,11 @@ class BotGUI:
 
     def _update_summary(self):
         window_txt = self.selected_window_title or "-"
-        if self.hunt_region:
-            l, t, r, b = self.hunt_region
-            region_txt = f"{r - l}x{b - t}"
-        else:
-            region_txt = "-" if not self.keypress_only_var.get() else self.t("keypress_only")
         monsters_txt = ", ".join(m["name"] for m in self.monsters) if self.monsters else "-"
         keys_txt = self.skill_keys_var.get()
 
         lines = [
             self.t("summary_window", v=window_txt),
-            self.t("summary_region", v=region_txt),
             self.t("summary_monsters", v=monsters_txt),
             self.t("summary_keys", v=keys_txt),
             "",
@@ -503,9 +473,14 @@ class BotGUI:
             sel = listbox.curselection()
             if not sel:
                 return
-            hwnd, title, _rect = windows[sel[0]]
+            hwnd, title, fallback_rect = windows[sel[0]]
             self.selected_hwnd = hwnd
             self.selected_window_title = title
+            # Hunt region = the window's own client area - no separate
+            # "draw a box" step; falls back to the outer window rect if the
+            # client-area lookup fails for some reason.
+            self.hunt_region = winutil.get_window_client_rect_on_screen(hwnd) or fallback_rect
+            self.config.hunt_region = self.hunt_region
             self.window_label.configure(text=title)
             picker.destroy()
 
@@ -517,18 +492,8 @@ class BotGUI:
             winutil.bring_window_to_front(self.selected_hwnd)
             time.sleep(0.2)
 
-    def _set_hunt_region(self):
-        self._bring_selected_window_front()
-        rect = select_screen_region(self.root, self.t("drag_to_select"))
-        if rect is None:
-            return
-        self.hunt_region = rect
-        self.config.hunt_region = rect
-        left, top, right, bottom = rect
-        self.region_label.configure(text=self.t("region_set", w=right - left, h=bottom - top, x=left, y=top))
-
     # ------------------------------------------------------------------
-    # monsters (combined template + color calibration)
+    # monsters (color calibration only - no template file)
     # ------------------------------------------------------------------
     def _add_monster(self):
         """Color-only calibration + a friendly name - no template file, no
@@ -556,7 +521,7 @@ class BotGUI:
             messagebox.showerror(self.t("add_monster"), str(exc))
             return
 
-        color_note = ""
+        status = "none"
         try:
             import numpy as np
             bgr = np.array(img)[:, :, ::-1]
@@ -566,26 +531,32 @@ class BotGUI:
                 if hasattr(self, "color_label"):
                     self.color_label.configure(text=self._hsv_text(hsv_range))
                 # sanity check: does the range we just derived even find
-                # its own source crop again? If not, warn immediately
-                # instead of the user discovering it during live hunting.
-                self_check = color_detect.find_candidates(bgr, hsv_range)
-                color_note = (" - " + self.t("color_calibration_ok") if self_check
-                              else " - " + self.t("color_calibration_weak"))
-            else:
-                color_note = " - " + self.t("color_calibration_none")
+                # its own source crop again? If not, this is visibly
+                # flagged right away instead of the user discovering it
+                # during live hunting.
+                status = "ok" if color_detect.find_candidates(bgr, hsv_range) else "weak"
         except Exception:
             pass  # calibration failing shouldn't block adding the name
 
-        self._register_monster(base, None)
-        self._log(f"🎨 {base}{color_note}")
+        self._register_monster(base, None, status=status)
 
-    def _register_monster(self, name, path):
+    _STATUS_ICON = {"ok": "✅", "weak": "⚠", "none": "⚠"}
+    _STATUS_COLOR = {"ok": "#4ade80", "weak": "#facc15", "none": "#f87171"}
+
+    def _register_monster(self, name, path, status=None):
         if any(m["name"] == name for m in self.monsters):
             return
-        self.monsters.append({"name": name, "path": path})
-        self.monster_listbox.insert("end", name)
+        self.monsters.append({"name": name, "path": path, "status": status})
+        icon = self._STATUS_ICON.get(status, "")
+        self.monster_listbox.insert("end", f"{icon} {name}".strip())
+        if status in self._STATUS_COLOR:
+            self.monster_listbox.itemconfig(self.monster_listbox.size() - 1, fg=self._STATUS_COLOR[status])
         self._sync_target_monsters()
         self.monster_count_label.configure(text=self.t("monsters_added", n=len(self.monsters)))
+        status_key = {"ok": "color_calibration_ok", "weak": "color_calibration_weak",
+                      "none": "color_calibration_none"}.get(status)
+        if status_key:
+            self._log(f"{icon} {name} - {self.t(status_key)}")
 
     def _remove_selected_monster(self):
         sel = self.monster_listbox.curselection()
@@ -672,7 +643,7 @@ class BotGUI:
 
     def _set_hp_bar(self):
         if self.hunt_region is None:
-            messagebox.showwarning(self.t("set_hp_bar"), self.t("err_no_region"))
+            messagebox.showwarning(self.t("set_hp_bar"), self.t("err_no_window"))
             return
         self._bring_selected_window_front()
         rect = select_screen_region(self.root, self.t("hp_bar_hint"))
@@ -689,116 +660,12 @@ class BotGUI:
         self.config.hp_bar_rect = None
         self.hp_bar_label.configure(text=self.t("hp_bar_not_set"))
 
-    # ------------------------------------------------------------------
-    # profiles
-    # ------------------------------------------------------------------
-    def _refresh_profile_list(self):
-        names = profiles.list_profiles()
-        self.profile_combo.configure(values=names)
-
-    def _profile_dict(self):
-        return {
-            "hunt_region": list(self.hunt_region) if self.hunt_region else None,
-            "selected_window_title": self.selected_window_title,
-            "monsters": [m["name"] for m in self.monsters],
-            "detection_mode": self._mode_key(),
-            "nameplate_hsv": [list(self.config.nameplate_hsv[0]), list(self.config.nameplate_hsv[1])],
-            "target_monsters": self.target_monsters_var.get(),
-            "keypress_only": self.keypress_only_var.get(),
-            "auto_tab": self.auto_tab_var.get(),
-            "auto_tab_interval": self.auto_tab_interval_var.get(),
-            "skill_keys": self.skill_keys_var.get(),
-            "loot_key": self.loot_key_var.get(),
-            "skill_interval": self.skill_interval_var.get(),
-            "mob_interval": self.mob_interval_var.get(),
-            "threshold": self.threshold_var.get(),
-            "reclick": self.reclick_var.get(),
-            "input_method": self.input_method_var.get(),
-            "hp_bar_rect": list(self.config.hp_bar_rect) if self.config.hp_bar_rect else None,
-            "buffs_enabled": self.buffs_enabled_var.get(),
-            "buff_keys": self.buff_keys_var.get(),
-            "buff_interval": self.buff_interval_var.get(),
-        }
-
     def _mode_key(self):
         label = self.mode_var.get()
         for key, text in self.mode_labels.items():
             if text == label:
                 return key
-        return "hybrid"
-
-    def _save_profile(self):
-        name = self.profile_var.get().strip() or simpledialog.askstring(
-            self.t("save_profile"), self.t("profile_name_prompt"), parent=self.root)
-        if not name:
-            return
-        saved = profiles.save_profile(name, self._profile_dict())
-        self.profile_var.set(saved)
-        self._refresh_profile_list()
-        self._log("💾 " + self.t("profile_saved", name=saved))
-
-    def _load_profile(self):
-        name = self.profile_var.get().strip()
-        if not name:
-            messagebox.showwarning(self.t("load_profile"), self.t("no_profile_selected"))
-            return
-        try:
-            data = profiles.load_profile(name)
-        except (FileNotFoundError, OSError) as exc:
-            messagebox.showerror(self.t("load_profile"), str(exc))
-            return
-
-        if data.get("hunt_region"):
-            self.hunt_region = tuple(data["hunt_region"])
-            self.config.hunt_region = self.hunt_region
-            left, top, right, bottom = self.hunt_region
-            self.region_label.configure(text=self.t("region_set", w=right - left, h=bottom - top, x=left, y=top))
-
-        mode_key = data.get("detection_mode", "hybrid")
-        self.mode_var.set(self.mode_labels.get(mode_key, self.mode_labels["hybrid"]))
-
-        if data.get("nameplate_hsv"):
-            lo, hi = data["nameplate_hsv"]
-            self.config.nameplate_hsv = (tuple(lo), tuple(hi))
-            self.color_label.configure(text=self._hsv_text(self.config.nameplate_hsv))
-
-        self.target_monsters_var.set(data.get("target_monsters", ""))
-        for saved_name in data.get("monsters", []):
-            existing_path = os.path.join(MONSTERS_DIR, sanitize_template_basename(saved_name) + ".png")
-            self._register_monster(saved_name, existing_path)
-
-        self.keypress_only_var.set(data.get("keypress_only", False))
-        self.auto_tab_var.set(data.get("auto_tab", False))
-        self.auto_tab_interval_var.set(data.get("auto_tab_interval", 3.0))
-        self.skill_keys_var.set(data.get("skill_keys", "1,2,3,4"))
-        self.loot_key_var.set(data.get("loot_key", ""))
-        self.skill_interval_var.set(data.get("skill_interval", 0.15))
-        self.mob_interval_var.set(data.get("mob_interval", 0.2))
-        self.threshold_var.set(data.get("threshold", 0.40))
-        self.reclick_var.set(data.get("reclick", 2.5))
-        self.input_method_var.set(data.get("input_method", "auto"))
-
-        hp_rect = data.get("hp_bar_rect")
-        self.config.hp_bar_rect = tuple(hp_rect) if hp_rect else None
-        self.hp_bar_label.configure(
-            text=(self.t("hp_bar_set") + f": {self.config.hp_bar_rect}") if hp_rect else self.t("hp_bar_not_set"))
-
-        self.buffs_enabled_var.set(data.get("buffs_enabled", False))
-        self.buff_keys_var.set(data.get("buff_keys", ""))
-        self.buff_interval_var.set(data.get("buff_interval", 60.0))
-
-        self._log("📂 " + self.t("profile_loaded", name=name))
-        self._show_page(PAGE_START)
-
-    def _delete_profile(self):
-        name = self.profile_var.get().strip()
-        if not name:
-            messagebox.showwarning(self.t("delete_profile"), self.t("no_profile_selected"))
-            return
-        profiles.delete_profile(name)
-        self.profile_var.set("")
-        self._refresh_profile_list()
-        self._log("🗑 " + self.t("profile_deleted", name=name))
+        return "color"
 
     # ------------------------------------------------------------------
     # config / engine control
