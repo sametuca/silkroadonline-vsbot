@@ -18,6 +18,7 @@ from typing import Callable, List, Optional, Tuple
 from . import color_detect, detection, input_methods, ocr, winutil
 from .capture import ScreenGrabber
 from .detection import ReclickGuard
+from .reference_match import ReferenceMatcher
 from .state_machine import State
 
 HSVRange = Tuple[Tuple[int, int, int], Tuple[int, int, int]]
@@ -77,6 +78,10 @@ class BotEngine:
         self.state = State.SCANNING
         self.reclick_guard = ReclickGuard(config.reclick_lockout)
         self.templates = []
+        # Set by the GUI after Add Monster captures - an independent,
+        # color-blind fallback path (see reference_match.py). None/empty
+        # is a no-op, existing color/hybrid/template/ocr modes are unaffected.
+        self.reference_matcher: Optional[ReferenceMatcher] = None
         self._grabber: Optional[ScreenGrabber] = None
         self._last_buff_time = 0.0
         self._last_auto_tab_time = 0.0
@@ -88,6 +93,10 @@ class BotEngine:
         self._focus_warning_logged = False
         self._scan_count = 0
         self._last_heartbeat_at = 0.0
+        self._heartbeat_scan_count = 0
+        self._capture_ms_sum = 0.0
+        self._orb_skip_counter = 0
+        self._detect_ms_sum = 0.0
 
     # -- lifecycle -----------------------------------------------------
     def start(self):
@@ -110,6 +119,10 @@ class BotEngine:
         self._focus_warning_logged = False
         self._scan_count = 0
         self._last_heartbeat_at = self.start_time
+        self._heartbeat_scan_count = 0
+        self._capture_ms_sum = 0.0
+        self._orb_skip_counter = 0
+        self._detect_ms_sum = 0.0
         self.state = State.SCANNING
 
         if self.config.game_hwnd is not None and not winutil.is_foreground(self.config.game_hwnd):
@@ -174,23 +187,30 @@ class BotEngine:
     def _do_scan(self, now):
         cfg = self.config
         self._scan_count += 1
-        if now - self._last_heartbeat_at >= 8.0:
-            self._last_heartbeat_at = now
-            self.log(f"🔍 Taranıyor (#{self._scan_count}, mod={cfg.detection_mode}) - "
-                     f"henüz hedef bulunamadı" if self.kills == 0 else f"🔍 Taranıyor (#{self._scan_count})")
 
         if cfg.auto_tab and now - self._last_auto_tab_time >= cfg.auto_tab_interval:
             input_methods.press_key("tab", cfg.input_method)
             self._last_auto_tab_time = now
             time.sleep(0.15)
 
+        t_capture_start = time.perf_counter()
         scene = self._capture()
+        t_capture_ms = (time.perf_counter() - t_capture_start) * 1000
+        self._capture_ms_sum += t_capture_ms
+
         if scene is None:
+            self._maybe_heartbeat(now)
             time.sleep(cfg.mob_interval)
             return
 
         target_names = set(cfg.target_monsters) if cfg.target_monsters else None
+        t_detect_start = time.perf_counter()
         found = self._run_detection(scene, target_names)
+        t_detect_ms = (time.perf_counter() - t_detect_start) * 1000
+        self._detect_ms_sum += t_detect_ms
+
+        self._maybe_heartbeat(now)
+
         if found is None:
             self._pending_detection = None
             time.sleep(cfg.mob_interval)
@@ -237,6 +257,28 @@ class BotEngine:
             self.reclick_guard.remember(found.template_name, screen_x, screen_y, now)
             self._attack_started_at = now
             self.state = State.ATTACKING
+
+    def _maybe_heartbeat(self, now):
+        """Logs real throughput every ~8s: scans/sec and average
+        capture/detection time. Turns "it barely finds anything" into a
+        measurement - a slow scan rate (a handful of scans/sec or worse on
+        a big hunt region) points at a performance problem, not a
+        detection-accuracy one, and calls for a completely different fix."""
+        if now - self._last_heartbeat_at < 8.0:
+            return
+        elapsed = max(now - self._last_heartbeat_at, 0.001)
+        scans = self._scan_count - self._heartbeat_scan_count
+        rate = scans / elapsed
+        avg_capture = self._capture_ms_sum / scans if scans else 0.0
+        avg_detect = self._detect_ms_sum / scans if scans else 0.0
+        self.log(f"🔍 {scans} tarama / {elapsed:.1f}sn (~{rate:.1f}/sn) - "
+                 f"yakalama ~{avg_capture:.0f}ms, tespit ~{avg_detect:.0f}ms "
+                 f"(mod={self.config.detection_mode})")
+        self._last_heartbeat_at = now
+        self._heartbeat_scan_count = self._scan_count
+        self._capture_ms_sum = 0.0
+        self._orb_skip_counter = 0
+        self._detect_ms_sum = 0.0
 
     def _do_confirm(self):
         time.sleep(0.25)
@@ -313,18 +355,40 @@ class BotEngine:
         cfg = self.config
         mode = cfg.detection_mode
         if mode == "color":
-            return detection.detect_color_only(scene, cfg.nameplate_hsv, target_names)
-        if mode == "template":
-            return detection.detect_template(scene, self.templates, cfg.template_threshold, target_names)
-        if mode == "ocr":
-            return detection.detect_with_ocr(scene, cfg.nameplate_hsv, target_names)
+            found = detection.detect_color_only(scene, cfg.nameplate_hsv, target_names)
+        elif mode == "template":
+            found = detection.detect_template(scene, self.templates, cfg.template_threshold, target_names)
+        elif mode == "ocr":
+            found = detection.detect_with_ocr(scene, cfg.nameplate_hsv, target_names)
+        else:
+            found = detection.detect_hybrid(scene, self.templates, cfg.nameplate_hsv, cfg.template_threshold,
+                                             target_names)
+            if found is not None and cfg.ocr_confirm and not detection.confirm_with_ocr(scene, found, target_names):
+                self.log(f"🔎 OCR discarded a likely false positive ({found.template_name})")
+                found = None
 
-        found = detection.detect_hybrid(scene, self.templates, cfg.nameplate_hsv, cfg.template_threshold,
-                                         target_names)
-        if found is not None and cfg.ocr_confirm and not detection.confirm_with_ocr(scene, found, target_names):
-            self.log(f"🔎 OCR discarded a likely false positive ({found.template_name})")
-            return None
-        return found
+        if found is not None:
+            self._orb_skip_counter = 0
+            return found
+
+        # Independent fallback: color/shape found nothing this cycle, but
+        # if the user has added reference crops, try ORB matching - a
+        # completely different signal (local gradient patterns, not hue),
+        # so it can succeed under lighting/color drift that defeats HSV.
+        # Throttled to every other miss - ORB on a large scene is real
+        # extra work, and if color is missing constantly, running it on
+        # every single cycle would roughly double the per-scan cost right
+        # when we most need the scan rate to stay up.
+        if self.reference_matcher is not None and self.reference_matcher.has_data():
+            self._orb_skip_counter += 1
+            if self._orb_skip_counter % 2 == 1:
+                hit = self.reference_matcher.find_in_scene(scene, target_names)
+                if hit is not None:
+                    name, cx, cy, w, h = hit
+                    self.log(f"🧩 ORB match: {name}")
+                    return detection.Detection(name, 0.99, int(cx - w / 2), int(cy - h / 2), int(w), int(h))
+
+        return None
 
     def _read_hp_ratio(self):
         cfg = self.config

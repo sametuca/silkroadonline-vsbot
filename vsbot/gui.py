@@ -20,6 +20,7 @@ from .bot_engine import BotConfig, BotEngine
 from .detection import base_monster_name, load_monster_templates, sanitize_template_basename
 from .i18n import Translator, get_language, save_language
 from .paths import data_path
+from .reference_match import ReferenceMatcher
 from .region_select import pick_screen_point, select_screen_region
 
 MONSTERS_DIR = data_path("monsters")
@@ -124,6 +125,8 @@ class BotGUI:
 
         self.config = BotConfig(monsters_dir=MONSTERS_DIR)
         self.engine = BotEngine(self.config, log_fn=self._log_threadsafe)
+        self.reference_matcher = ReferenceMatcher()
+        self.engine.reference_matcher = self.reference_matcher
 
         os.makedirs(MONSTERS_DIR, exist_ok=True)
         self.current_page = PAGE_WINDOW
@@ -496,14 +499,17 @@ class BotGUI:
     # monsters (color calibration only - no template file)
     # ------------------------------------------------------------------
     def _add_monster(self):
-        """Color-only calibration + a friendly name - no template file, no
-        shape matching. A tight box around just the name text (the normal
-        way to use this) doesn't carry enough structure for reliable edge/
-        template matching, so requiring it as a second gate on top of the
-        color match was mostly just rejecting good detections. Color alone
-        (still confirmed by 2 consecutive scans + the nearest-to-player
-        pick in bot_engine) is faster and, for this crop size, more
-        reliable.
+        """One box → two independent detection signals, no template file:
+
+        1. Color calibration (HSV) - fast, primary signal.
+        2. ORB reference (reference_match.py) - a completely different,
+           color-blind signal (local gradient patterns) that bot_engine
+           falls back to whenever color finds nothing that cycle. Doesn't
+           need a good crop the way color does; even a so-so one usually
+           yields enough keypoints to be useful.
+
+        Both come from the exact same drag - no extra step, no separate
+        "training" action.
         """
         self._bring_selected_window_front()
         rect = select_screen_region(self.root, self.t("template_wizard_hint"))
@@ -525,6 +531,7 @@ class BotGUI:
         try:
             import numpy as np
             bgr = np.array(img)[:, :, ::-1]
+
             hsv_range = color_detect.dominant_text_hsv(bgr)
             if hsv_range is not None:
                 self.config.nameplate_hsv = hsv_range
@@ -535,6 +542,9 @@ class BotGUI:
                 # flagged right away instead of the user discovering it
                 # during live hunting.
                 status = "ok" if color_detect.find_candidates(bgr, hsv_range) else "weak"
+
+            orb_ok = self.reference_matcher.add(base, bgr)
+            self._log(("🧩 " if orb_ok else "🧩⚠ ") + self.t("orb_added" if orb_ok else "orb_too_plain", name=base))
         except Exception:
             pass  # calibration failing shouldn't block adding the name
 
@@ -563,8 +573,10 @@ class BotGUI:
         if not sel:
             return
         idx = sel[0]
+        removed_name = self.monsters[idx]["name"]
         del self.monsters[idx]
         self.monster_listbox.delete(idx)
+        self.reference_matcher.remove(removed_name)
         self._sync_target_monsters()
         text = self.t("monsters_added", n=len(self.monsters)) if self.monsters else self.t("no_monsters_added")
         self.monster_count_label.configure(text=text)
@@ -580,7 +592,13 @@ class BotGUI:
         "wolf" list entry, same as they do for matching.
         """
         for tpl in load_monster_templates(MONSTERS_DIR):
-            self._register_monster(base_monster_name(tpl.name), tpl.path)
+            name = base_monster_name(tpl.name)
+            self._register_monster(name, tpl.path)
+            try:
+                import cv2
+                self.reference_matcher.add(name, cv2.cvtColor(tpl.gray, cv2.COLOR_GRAY2BGR))
+            except Exception:
+                pass  # ORB backfill is a bonus - color calibration still needs a fresh capture either way
 
     # ------------------------------------------------------------------
     # OCR engine status / installer
