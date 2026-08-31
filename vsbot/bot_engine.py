@@ -205,17 +205,24 @@ class BotEngine:
             return
 
         # Require the same detection twice in a row before committing to a
-        # click - filters out single-frame noise (motion blur, a passing
-        # skill effect briefly matching the color/shape).
-        pending = self._pending_detection
-        matches_pending = (
-            pending is not None and pending[0] == found.template_name
-            and abs(pending[1] - screen_x) <= 18 and abs(pending[2] - screen_y) <= 18
-        )
-        if not matches_pending:
-            self._pending_detection = (found.template_name, screen_x, screen_y)
-            time.sleep(0.08)
-            return
+        # click - filters single-frame noise, but only worth the latency
+        # for hybrid/template modes where a false click could mean the
+        # wrong monster species. In color mode there's no "species" to get
+        # wrong, and a real target's box jitters a few pixels frame to
+        # frame (walk animation, camera drift) - requiring it to land
+        # within a tight tolerance twice in a row was rejecting almost
+        # every real detection, not just noise (this was the main cause of
+        # very sparse clicking). So: color mode trusts the first hit.
+        if cfg.detection_mode != "color":
+            pending = self._pending_detection
+            matches_pending = (
+                pending is not None and pending[0] == found.template_name
+                and abs(pending[1] - screen_x) <= 30 and abs(pending[2] - screen_y) <= 30
+            )
+            if not matches_pending:
+                self._pending_detection = (found.template_name, screen_x, screen_y)
+                time.sleep(0.08)
+                return
         self._pending_detection = None
 
         self.log(f"🎯 {found.template_name} (confidence={found.confidence:.2f})")
