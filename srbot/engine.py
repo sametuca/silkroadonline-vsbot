@@ -7,6 +7,7 @@ from enum import Enum
 
 from . import detect, inputs, winutil
 from .capture import ScreenGrabber
+from .roam import Roamer
 
 ADMIN_HINT = ("Oyun yönetici olarak çalışıyor, bu program değil: Windows tuş ve tıklamaları sessizce engelliyor. "
               "Programı yönetici olarak yeniden başlat.")
@@ -18,6 +19,7 @@ class State(str, Enum):
     CONFIRMING = "Hedef doğrulanıyor"
     ATTACKING = "Saldırıyor"
     LOOTING = "Loot toplanıyor"
+    ROAMING = "Canavar aranıyor (geziyor)"
 
 
 class BotEngine(threading.Thread):
@@ -34,6 +36,9 @@ class BotEngine(threading.Thread):
         self.recorder = recorder
         self.kills = 0
         self._last_idle_log = 0.0
+        self._idle_since = None
+        self._roaming = False
+        self.roamer = Roamer()
 
     def stop(self):
         self._stop_evt.set()
@@ -97,9 +102,12 @@ class BotEngine(threading.Thread):
                 target = self._nearest(dets, frame.shape, avoid) if frame is not None else None
                 if target is None:
                     avoid = avoid[-3:]
+                    if frame is not None and self._maybe_roam(frame, rect):
+                        continue
                     self._log_idle()
                     self._sleep(self.cfg.scan_interval)
                     continue
+                self._idle_since, self._roaming = None, False
 
                 if not self._confirm(grabber, rect, target):
                     continue
@@ -110,6 +118,27 @@ class BotEngine(threading.Thread):
             grabber.close()
             self.on_state(State.IDLE)
             self.on_log("Bot durdu.")
+
+    def _maybe_roam(self, frame, rect):
+        """Nothing to hit for a while: walk to a nearby ground point and look again."""
+        if not self.cfg.roam:
+            return False
+        now = time.time()
+        if self._idle_since is None:
+            self._idle_since = now
+        if now - self._idle_since < self.cfg.roam_after or not self._focus():
+            return False
+        self.on_state(State.ROAMING)
+        if not self._roaming:
+            self._roaming = True
+            self.on_log("Ekranda hedef canavar yok, gezinerek aranıyor.")
+        x, y = self.roamer.next_point(frame.shape, self.cfg.roam_step, self.cfg.excludes)
+        if not inputs.click_at(rect[0] + x, rect[1] + y):
+            self.on_log("Gezinme tıklaması reddedildi (yönetici yetkisi gerekebilir).")
+            self._idle_since = now
+            return False
+        self._sleep(self.cfg.roam_wait)
+        return True
 
     def _log_idle(self):
         now = time.time()

@@ -33,6 +33,10 @@ class Config:
     click_offset: int = 18          # px below the name label, at 632px window height
     match_threshold: int = 78       # fuzzy name match, 0-100
     confirm_frames: int = 2
+    roam: bool = True               # walk around when no target monster is on screen
+    roam_after: float = 2.5         # seconds without a target before walking
+    roam_step: int = 200            # walk distance in px at 632px window height
+    roam_wait: float = 1.8          # seconds to let the character walk before looking again
     detector: str = "auto"          # auto (model if trained, else OCR) | ocr | model
     model_conf: float = 0.4
     attack_timeout: float = 30.0

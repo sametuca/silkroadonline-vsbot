@@ -13,13 +13,14 @@ import sys
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox
 
 import customtkinter as ctk
 import cv2
 from PIL import Image
 
-from . import detect, winutil
+from . import CONTACT_EMAIL, GITHUB_URL, REPO_URL, __author__, __version__, detect, winutil
 from .capture import ScreenGrabber
 from .config import Config
 from .engine import ADMIN_HINT, BotEngine, State
@@ -105,6 +106,11 @@ class App(ctk.CTk):
         self.attack_entry = self._labeled_entry(side, "Saldırı tuşları (virgülle: 1,2,3)", ",".join(self.cfg.attack_keys))
         self.loot_entry = self._labeled_entry(side, "Loot tuşu (boş bırakırsan kapalı)", self.cfg.loot_key)
 
+        self.roam_switch = ctk.CTkSwitch(side, text="Canavar yoksa gezinerek ara")
+        if self.cfg.roam:
+            self.roam_switch.select()
+        self.roam_switch.pack(anchor="w", padx=14, pady=(4, 0))
+
         self.adv_switch = ctk.CTkSwitch(side, text="Gelişmiş", command=self._toggle_advanced)
         self.adv_switch.pack(anchor="w", padx=14, pady=(10, 0))
         self.adv = ctk.CTkFrame(side, fg_color="transparent")
@@ -117,7 +123,8 @@ class App(ctk.CTk):
         bar = ctk.CTkFrame(main, fg_color="transparent")
         bar.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 4))
         ctk.CTkLabel(bar, text="Canlı önizleme", font=("", 14, "bold")).pack(side="left")
-        ctk.CTkButton(bar, text="Test taraması", width=110, command=self._test_scan, **GRAY).pack(side="right")
+        ctk.CTkButton(bar, text="Hakkında", width=80, command=self._about, **GRAY).pack(side="right")
+        ctk.CTkButton(bar, text="Test taraması", width=110, command=self._test_scan, **GRAY).pack(side="right", padx=(0, 6))
         self.preview = ctk.CTkLabel(main, text="Başlat'a basınca bot ekranı burada gösterir.",
                                     fg_color="gray14", corner_radius=6, height=300)
         self.preview.grid(row=1, column=0, sticky="ew", padx=12, pady=4)
@@ -332,6 +339,7 @@ class App(ctk.CTk):
     def _apply_inputs(self):
         self.cfg.attack_keys = [k.strip() for k in self.attack_entry.get().split(",") if k.strip()]
         self.cfg.loot_key = self.loot_entry.get().strip()
+        self.cfg.roam = bool(self.roam_switch.get())
         self.cfg.save()
 
     def _toggle(self):
@@ -374,6 +382,22 @@ class App(ctk.CTk):
             keyboard.add_hotkey(HOTKEY, lambda: self.events.put(("toggle", None)))
         except Exception:
             self._log("Global kısayol kurulamadı; düğmeyi kullan.")
+
+    def _about(self):
+        win = ctk.CTkToplevel(self)
+        win.title("Hakkında")
+        win.geometry("380x330")
+        win.attributes("-topmost", True)
+        win.transient(self)
+        ctk.CTkLabel(win, text="Silkroad Vision Bot", font=("", 20, "bold")).pack(pady=(22, 0))
+        ctk.CTkLabel(win, text=f"Sürüm {__version__}", text_color="gray70").pack()
+        ctk.CTkLabel(win, text="Ekrandaki canavarları isim etiketinden tanıyan,\nbellek okumayan açık kaynaklı av botu.",
+                     justify="center").pack(pady=(12, 0))
+        ctk.CTkLabel(win, text=f"Geliştirici: {__author__}", font=("", 13, "bold")).pack(pady=(14, 6))
+        for text, url in (("GitHub: sametuca", GITHUB_URL), (CONTACT_EMAIL, "mailto:" + CONTACT_EMAIL),
+                          ("Proje sayfası", REPO_URL)):
+            ctk.CTkButton(win, text=text, width=220, command=lambda u=url: webbrowser.open(u), **GRAY).pack(pady=3)
+        ctk.CTkLabel(win, text="MIT Lisansı", text_color="gray60").pack(pady=(10, 0))
 
     # -- advanced: detector mode, recording, training ---------------------
     def _on_mode(self, label):

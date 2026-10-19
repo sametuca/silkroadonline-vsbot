@@ -1,90 +1,108 @@
+<div align="center">
+
 # Silkroad Vision Bot
 
-Ekrandaki canavarları **isim etiketinden** tanıyıp seçen ve tuş vuruşu gönderen, ekran görüntüsü tabanlı av botu (v3, sıfırdan yeniden yazıldı).
+### [🇬🇧 English](README.md) &nbsp;|&nbsp; [🇹🇷 Türkçe](README.tr.md)
 
-Oyun sürecine bağlanmaz, bellek okumaz, ağ trafiğine dokunmaz. Sadece ekrandaki pikselleri okur ve oyuncunun yapabileceği tuş/fare girdisini gönderir.
+Screen-vision auto-hunt bot for Silkroad-style MMOs. It reads monster **name labels** off the screen,
+picks targets, attacks, loots, and walks around to find more.
 
-## Kullanım
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)]()
 
-1. Oyunu **pencere modunda** aç ve penceresinin üstünün açık olduğundan emin ol.
-2. `python main.py` (veya Releases'tan `SilkroadVisionBot.exe`). Oyun penceresi otomatik seçilir.
-3. Saldırı tuşunu gir (ör. `1`), istersen loot tuşunu da.
-4. **BAŞLAT** (veya **F9**). Hedef daha önce seçilmediyse bot önce ekrana bakar ve
-   *"Ekranda Mangyang (5 adet) buldum, bu canavarlara mı vuracağım?"* diye sorar. **Evet** deyince av başlar.
+</div>
 
-Canavar listesi yazmana gerek yok. Normal, şampiyon ve dev canavarlar aynı adı taşıdığı için tek hedef olarak
-yakalanır. Hedef kaydedilir, sonraki seferde doğrudan BAŞLAT yeter. Başka bir canavara geçmek için **Yeniden ara**.
-Oyuncunun kendi adı pencere başlığından (`[Murkrow]`) okunup otomatik elenir; ekranda başka isimler de çıkarsa
-(başka oyuncular, NPC) varsayılan olarak yalnızca en kalabalık grup işaretli gelir.
+No memory reading, no packet injection, no DLL injection. The bot only looks at pixels already on your screen and
+sends the same keyboard and mouse input a player would.
 
-**Test taraması** düğmesi, botu çalıştırmadan neyi tanıdığını önizlemede yeşil kutularla gösterir.
+## Quick start
 
-### Windows uyarıları
+1. Download `SilkroadVisionBot.exe` from [**Releases**](../../releases/latest) and double-click it (no Python needed).
+   Or from source: `pip install -r requirements.txt`, then `python main.py`.
+2. Run the game in **windowed mode** and keep its window uncovered. The game window is picked automatically.
+3. Enter your attack key (e.g. `1`) and, optionally, a loot key.
+4. Press **START** (or **F9**).
 
-Exe imzasız olduğu için SmartScreen "Bilinmeyen yayıncı" uyarısı verebilir: **Ek bilgi → Yine de çalıştır**.
-Tuş gönderen ve ekran okuyan her program gibi, bazı antivirüsler yanlışlıkla işaretleyebilir. Kaynak kodun tamamı
-bu depoda açıktır, exe'yi isteyen kendisi `.\build.ps1` ile derleyebilir.
+The first time, the bot looks at the screen and asks:
+*"I found Mangyang (5 on screen). Should I hit these?"* Click **Yes** and the hunt begins.
 
-### Yönetici yetkisi (önemli)
+You never type a monster list. Normal, champion and giant monsters share the same name, so a single target covers
+all of them. The target is saved: next time just press START. To switch monsters, press **Search again**.
+Your own character name is read from the window title (`[YourName] ...`) and ignored automatically. If other names
+show up (players, NPCs), only the most frequent group is ticked by default.
 
-Oyun yönetici olarak çalışıyorsa, bu program yönetici değilken Windows (UIPI) gönderdiği tuş ve tıklamaları
-**sessizce yutar**: bot canavarı görür ama hiçbir şey olmaz. Program bunu otomatik tespit eder, kenar çubuğunda
-uyarı gösterir ve **Yönetici olarak yeniden başlat** düğmesi sunar.
+**Test scan** shows what the bot recognises (green boxes) without attacking anything.
 
-## Eğitim verisi toplama (YOLO için)
+### Roaming
 
-Sol paneldeki **Gelişmiş** altında bulunan **Eğitim verisi topla** düğmesi, sen oynarken (ya da bot avlanırken) kareleri kaydeder.
-Her karede canavarın adı OCR ile okunur ve sprite kutusu isim etiketinin konumundan otomatik çıkarılır, elle kutu çizmek gerekmez.
-Çıktı `dataset/` klasöründe YOLO formatındadır (`images/`, `labels/`, `classes.txt`). Benzer kareler ve 1 sn'den sık kayıtlar atlanır.
-Önizlemede turuncu kutular kaydedilecek sprite kutularını gösterir.
+When no target monster is on screen for a few seconds, the character **walks to a nearby ground point** and looks
+again, changing direction every few steps. Turn it off with the **"Search by roaming when no monster"** switch.
 
-## Model eğitimi (YOLO)
+> The roaming walk has no map boundary yet, so over a long time it can drift away from your starting area.
 
-1. Veri topla (yukarıda). Canavar başına birkaç yüz kare, farklı açı, mesafe ve ışıkla iyi sonuç verir.
-2. Bir kez `pip install -r requirements-train.txt` (yalnızca eğitim için, torch içerir).
-3. Arayüzde **Modeli eğit** (ya da `python -m srbot.train`). CPU'da onlarca kare birkaç dakika sürer.
-4. Bittiğinde `models/monsters.onnx` oluşur. **Tespit: Otomatik** modu modeli kendiliğinden kullanır, model yoksa OCR'a döner.
+### Administrator rights (important)
 
-Çıkarım yalnızca `onnxruntime` ile çalışır (torch gerekmez, yaklaşık 40 ms/kare), bu yüzden exe küçük kalır.
-Model modunda yeni kare kaydedilmez, kayıt OCR etiketlerine dayanır.
+If the game runs **as administrator** and this program does not, Windows (UIPI) **silently drops** every key and click
+the bot sends: it sees monsters but nothing happens. The program detects this, shows a warning in the sidebar and
+offers a **Restart as administrator** button.
 
-## Nasıl çalışır
+### Windows warnings
 
-1. Ekrandaki beyaz, ince, kenarlıklı yazı blokları bulunur (HUD, minimap, sohbet gibi sabit alanlar hariç).
-2. Her blok [RapidOCR](https://github.com/RapidAI/RapidOCR) (ONNX, ayrı kurulum gerektirmez) ile okunur.
-3. Okunan isim, listendeki isimlerle bulanık eşleştirilir (`Mangyang` ≈ `Mangyan9`).
-4. Oyuncuya en yakın eşleşen etiketin biraz altına tıklanır, saldırı tuşlarına basılır.
-5. Etiket birkaç taramada kaybolunca canavar ölmüş sayılır, loot tuşuna basılır ve döngü başa döner.
+The exe is unsigned, so SmartScreen may show "Unknown publisher": click **More info → Run anyway**. Like any program
+that sends keys and reads the screen, some antivirus tools may flag it by mistake. All source code is in this repository;
+you can build the exe yourself with `.\build.ps1`.
 
-Durumlar: `Canavar aranıyor → Hedef doğrulanıyor → Saldırıyor → Loot toplanıyor`.
+## How it works
 
-## Yol haritası
+1. White, thin, outlined text blobs are found on screen (fixed UI such as HUD, minimap and chat is excluded).
+2. Each blob is read with [RapidOCR](https://github.com/RapidAI/RapidOCR) (ONNX, no separate install).
+3. The text is fuzzy-matched against your target (`Mangyang` ≈ `Mangyan9`).
+4. The nearest match is clicked just below its label and the attack keys are pressed.
+5. When the label disappears for a few scans the monster counts as dead, the loot key is pressed and the loop restarts.
 
-- [x] **A:** Yeni yapı, OCR ile tespit, CustomTkinter arayüzü
-- [x] **B:** Kayıt modu ve OCR ile otomatik etiketleme (YOLO eğitim verisi)
-- [x] **C:** YOLO eğitimi ve çıkarımı
-- [x] **D:** Paketleme ve CI (exe derleme, otomatik test, sürüm yayını)
+States: `Searching → Confirming → Attacking → Looting`, plus `Roaming` when nothing is on screen.
 
-## Geliştirme
+## Optional: train a YOLO model
+
+OCR works out of the box. A trained detector can see the monster sprite itself, which helps when labels are hidden.
+It needs real data, so it is an optional upgrade.
+
+1. Under **Advanced**, press **Collect training data** and play or hunt as usual. Boxes are labelled automatically
+   from the name labels, with no hand drawing. Output goes to `dataset/` in YOLO format.
+2. Collect a few hundred frames per monster with varied angles, distances and lighting.
+3. Once: `pip install -r requirements-train.txt` (training only; it pulls in torch).
+4. Press **Train model** (or `python -m srbot.train`). On CPU this takes minutes.
+5. `models/monsters.onnx` appears and **Detector: Automatic** uses it, falling back to OCR when no model exists.
+   Inference needs only `onnxruntime` (about 40 ms per frame), so the exe stays small.
+
+Recording relies on OCR labels, so collect data while the detector is on **OCR** (not on model-only mode).
+
+## Development
 
 ```bash
-pip install -r requirements.txt
-python main.py
+pip install -r requirements.txt pytest
+pytest                                       # unit tests (OCR detection, recorder, YOLO decoding, hunt loop, roaming)
+.\build.ps1                                  # builds dist\SilkroadVisionBot.exe and smoke-tests it
+SilkroadVisionBot.exe --selftest result.txt  # verifies OCR/onnxruntime inside the built exe
 ```
 
-Ayarlar `config.json` dosyasında saklanır (git'e girmez).
+Settings live in `config.json` (git-ignored). On every push to `main`, GitHub Actions runs the tests, builds the exe,
+verifies it with `--selftest` and updates the "latest" [release](../../releases/latest).
+Training dependencies are deliberately left out of the exe, which is why it is about 100 MB.
 
-```bash
-pip install pytest
-pytest                                       # birim testleri (OCR tespiti, kayıt, YOLO çözümleme, av döngüsü)
-.\build.ps1                                  # dist\SilkroadVisionBot.exe derler ve duman testinden geçirir
-SilkroadVisionBot.exe --selftest sonuc.txt   # exe içindeki OCR/onnxruntime'ı doğrular
-```
+## About
 
-`main` dalına her push'ta GitHub Actions testleri çalıştırır, exe'yi derler, `--selftest` ile doğrular ve
-[Releases](../../releases/latest) altındaki "latest" sürümü günceller. Eğitim bağımlılıkları (torch vb.) exe'ye
-bilerek dahil edilmez, bu yüzden exe yaklaşık 100 MB'tır.
+**Silkroad Vision Bot** v3 is developed by **Samet Uca**.
 
-## Lisans
+- GitHub: [github.com/sametuca](https://github.com/sametuca)
+- Email: [sametuca@hotmail.com](mailto:sametuca@hotmail.com)
+- Project: [github.com/sametuca/silkroadonline-vsbot](https://github.com/sametuca/silkroadonline-vsbot)
 
-MIT
+Bug reports and ideas are welcome via [Issues](../../issues).
+
+Using bots may violate a game server's rules. You are responsible for how you use this software.
+
+## License
+
+[MIT](LICENSE)
