@@ -20,6 +20,7 @@ KEYEVENTF_EXTENDEDKEY = 0x0001
 
 MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_ABSOLUTE = 0x8000
+MOUSEEVENTF_VIRTUALDESK = 0x4000
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 
@@ -88,10 +89,10 @@ def send_scan_code_key(key, hold_seconds=0.03):
     up = INPUT(type=INPUT_KEYBOARD,
                union=_INPUTUNION(ki=KEYBDINPUT(0, code, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, 0)))
 
-    user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(INPUT))
+    sent = user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(INPUT))
     time.sleep(hold_seconds)
     user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(INPUT))
-    return True
+    return sent == 1
 
 
 def send_pydirectinput_key(key):
@@ -136,13 +137,23 @@ def press_key(key, method="auto"):
 
 
 def _screen_to_absolute(x, y):
-    screen_w = user32.GetSystemMetrics(0)
-    screen_h = user32.GetSystemMetrics(1)
-    return int(x * 65535 / max(screen_w - 1, 1)), int(y * 65535 / max(screen_h - 1, 1))
+    """Map screen pixels to SendInput's 0-65535 space over the whole virtual desktop."""
+    left, top = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)    # SM_X/YVIRTUALSCREEN
+    width, height = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)  # SM_CX/CYVIRTUALSCREEN
+    if width <= 0 or height <= 0:
+        width, height, left, top = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1), 0, 0
+    return (int((x - left) * 65535 / max(width - 1, 1)),
+            int((y - top) * 65535 / max(height - 1, 1)))
+
+
+def _mouse(abs_x, abs_y, flags):
+    return INPUT(type=INPUT_MOUSE,
+                 union=_INPUTUNION(mi=MOUSEINPUT(abs_x, abs_y, 0,
+                                                 flags | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, 0, 0)))
 
 
 def click_at(x, y, method="auto"):
-    """Move the cursor to (x, y) in screen pixels and left-click."""
+    """Move the cursor to (x, y) in screen pixels and left-click. True if Windows accepted it."""
     if method == "pydirectinput":
         try:
             import pydirectinput
@@ -153,19 +164,10 @@ def click_at(x, y, method="auto"):
             pass  # fall through to SendInput
 
     abs_x, abs_y = _screen_to_absolute(int(x), int(y))
-    move = INPUT(type=INPUT_MOUSE,
-                 union=_INPUTUNION(mi=MOUSEINPUT(abs_x, abs_y, 0,
-                                                  MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, 0, 0)))
-    down = INPUT(type=INPUT_MOUSE,
-                 union=_INPUTUNION(mi=MOUSEINPUT(abs_x, abs_y, 0,
-                                                  MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE, 0, 0)))
-    up = INPUT(type=INPUT_MOUSE,
-               union=_INPUTUNION(mi=MOUSEINPUT(abs_x, abs_y, 0,
-                                                MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE, 0, 0)))
-
-    user32.SendInput(1, ctypes.byref(move), ctypes.sizeof(INPUT))
-    time.sleep(0.02)
-    user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(INPUT))
+    size = ctypes.sizeof(INPUT)
+    moved = user32.SendInput(1, ctypes.byref(_mouse(abs_x, abs_y, MOUSEEVENTF_MOVE)), size)
     time.sleep(0.03)
-    user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(INPUT))
-    return True
+    down = user32.SendInput(1, ctypes.byref(_mouse(abs_x, abs_y, MOUSEEVENTF_LEFTDOWN)), size)
+    time.sleep(0.04)
+    up = user32.SendInput(1, ctypes.byref(_mouse(abs_x, abs_y, MOUSEEVENTF_LEFTUP)), size)
+    return moved == down == up == 1

@@ -207,3 +207,47 @@ def grab_screen(bbox):
     if ImageGrab is None:
         raise RuntimeError("Pillow (PIL) is not installed")
     return ImageGrab.grab(bbox=bbox)
+
+
+def window_pid(hwnd):
+    pid = wintypes.DWORD(0)
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def is_process_elevated(pid):
+    """True/False for the process's elevation, None if it can't be determined."""
+    advapi32 = ctypes.windll.advapi32
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    token = wintypes.HANDLE()
+    try:
+        # A non-elevated caller is refused a token of an elevated process; that refusal
+        # itself means "elevated" (access denied), anything else is unknown.
+        if not advapi32.OpenProcessToken(handle, 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+            return True if kernel32.GetLastError() == 5 else None
+        elevation, returned = wintypes.DWORD(), wintypes.DWORD()
+        if not advapi32.GetTokenInformation(token, 20, ctypes.byref(elevation), 4, ctypes.byref(returned)):
+            return None
+        return bool(elevation.value)
+    finally:
+        if token:
+            kernel32.CloseHandle(token)
+        kernel32.CloseHandle(handle)
+
+
+def needs_admin_for(hwnd):
+    """True when the game window is elevated and we are not.
+
+    Windows (UIPI) then silently drops every key and click we send, with no
+    error - the classic "it finds monsters but never presses anything".
+    """
+    return not is_admin() and is_process_elevated(window_pid(hwnd)) is True
+
+
+def character_name_from_title(title):
+    """Titles look like '[Murkrow] Destiny Online' - the bracket holds the character name."""
+    start, end = title.find("["), title.find("]")
+    return title[start + 1:end].strip() if 0 <= start < end else ""

@@ -4,6 +4,8 @@ name: Build Windows executable
 # Python or git - just a download link. Every push to main updates a single
 # rolling "latest" GitHub Release with the newest build - no manual tagging
 # needed. (Also runnable by hand from the Actions tab.)
+#
+# Keep the PyInstaller command in sync with build.ps1.
 
 on:
   push:
@@ -23,16 +25,32 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install -r requirements.txt pytest pyinstaller
+
+      - name: Test
+        run: pytest
 
       - name: Build executable
+        run: >
+          python -m PyInstaller --noconfirm --onefile --windowed --name SilkroadVisionBot
+          --collect-all rapidocr_onnxruntime --collect-all customtkinter
+          --exclude-module ultralytics --exclude-module torch --exclude-module torchvision
+          --exclude-module onnx --exclude-module matplotlib --exclude-module polars
+          main.py
+
+      - name: Smoke-test the built exe
+        shell: pwsh
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name SilkroadVisionBot --add-data "assets;assets" main.py
+          $result = Join-Path $env:RUNNER_TEMP "selftest.txt"
+          $proc = Start-Process -FilePath "dist\SilkroadVisionBot.exe" -ArgumentList "--selftest", $result -Wait -PassThru
+          if (Test-Path $result) { Get-Content $result }
+          if ($proc.ExitCode -ne 0) { throw "Self-test failed (exit code $($proc.ExitCode))" }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -41,6 +59,7 @@ jobs:
           path: dist/SilkroadVisionBot.exe
 
       - name: Publish "latest" release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest

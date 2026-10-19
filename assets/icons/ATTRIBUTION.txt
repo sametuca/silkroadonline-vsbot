@@ -1,3 +1,0 @@
-Toolbar and button icons are from Tabler Icons (MIT License).
-Source: https://tabler.io/icons
-Fetched via unpkg @tabler/icons-png for offline use.

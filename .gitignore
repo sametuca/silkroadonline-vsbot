@@ -35,20 +35,8 @@ ENV/
 *~
 .DS_Store
 
-# Screenshots (user-specific)
-monsters/*.png
-monsters/*.jpg
-monsters/*.jpeg
-power_bar/*.png
-power_bar/*.jpg
-power_bar/*.jpeg
-
-# Keep folder structure
-!monsters/.gitkeep
-!power_bar/.gitkeep
-
 # User-specific runtime state
-language.json
+config.json
 
 # Logs
 *.log
@@ -56,3 +44,9 @@ language.json
 # OS
 Thumbs.db
 desktop.ini
+
+# Recorded training data
+dataset/
+models/
+*.pt
+*.spec
