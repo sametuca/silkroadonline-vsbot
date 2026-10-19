@@ -18,7 +18,7 @@ import webbrowser
 
 import customtkinter as ctk
 
-from . import CONTACT_EMAIL, GITHUB_URL, REPO_URL, __author__, __version__, detect, i18n, theme, winutil
+from . import CONTACT_EMAIL, GITHUB_URL, REPO_URL, __author__, __version__, anim, detect, i18n, theme, winutil
 from .capture import ScreenGrabber
 from .config import Config
 from .engine import BotEngine, State
@@ -76,40 +76,57 @@ class App(ctk.CTk):
         self.step = 0
         self.view = "lang" if not self.cfg.language else "wizard"
         self.frames = []
+        self._visible = None             # the view frame currently shown
+        self._mover = anim.Mover()       # slides between views
+        self._page_mover = anim.Mover()  # slides between wizard steps
+        self._start_fg = theme.ACCENT
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
         self._build_all()
-        self._show_view(self.view)
+        self._show_view(self.view, animate=False)
         self._register_hotkey()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll)
-        self._center(self, 1000, 680)  # start in the middle of the screen
+        self.attributes("-alpha", 0.0)
+        self._center(self, 1000, 680, fade=False)  # start in the middle of the screen
         self.deiconify()
+        anim.fade_in(self, 320)
 
     # ======================================================================
     # Building and switching views
     # ======================================================================
-    def _build_all(self):
+    def _build_all(self, keep_language_page=False):
         for frame in self.frames:
-            frame.destroy()
-        self.langpage = ctk.CTkFrame(self, fg_color="transparent")
+            if not (keep_language_page and frame is getattr(self, "langpage", None)):
+                frame.destroy()
+        if not keep_language_page:
+            self.langpage = ctk.CTkFrame(self, fg_color="transparent")
+            self._build_language_page()
         self.wizard = ctk.CTkFrame(self, fg_color="transparent")
         self.dashboard = ctk.CTkFrame(self, fg_color="transparent")
         self.frames = [self.langpage, self.wizard, self.dashboard]
-        self._build_language_page()
         self._build_wizard()
         self._build_dashboard()
         self._refresh_windows()
         self._render_summary()
-        self._refresh_run_button()
+        self._refresh_run_button(animate=False)
 
-    def _show_view(self, view):
-        self.view = view
-        for name, frame in (("lang", self.langpage), ("wizard", self.wizard), ("dash", self.dashboard)):
-            frame.grid(row=0, column=0, sticky="nsew") if name == view else frame.grid_remove()
+    def _frame_of(self, view):
+        return {"lang": self.langpage, "wizard": self.wizard, "dash": self.dashboard}[view]
+
+    def _show_view(self, view, animate=True):
+        """Show a view; the new one slides in over the old one (forward = from the right, back = from the left)."""
+        order = {"lang": 0, "wizard": 1, "dash": 2}
+        new, old = self._frame_of(view), self._visible
         if view == "wizard":
-            self._goto_step(self.step)
+            self._apply_step(self.step, animate=False)  # the right page is in place before the view slides in
+        if animate and old is not None and old is not new and old.winfo_exists():
+            direction = 1 if order[view] >= order[self.view] else -1
+            self._mover.slide(self, new, old, direction)
+        else:
+            for frame in self.frames:
+                frame.place_forget()
+            new.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self._visible, self.view = new, view
 
     def _snapshot_inputs(self):
         """Keep what the user typed so a rebuild (language switch) loses nothing."""
@@ -127,8 +144,9 @@ class App(ctk.CTk):
         i18n.set_language(code)
         self.cfg.save()
         view = self.view if self.view != "lang" else "wizard"
+        self._visible = None
         self._build_all()
-        self._show_view(view)
+        self._show_view(view, animate=False)
 
     def _language_menu(self, parent):
         names = list(LANGUAGES.values())
@@ -142,12 +160,10 @@ class App(ctk.CTk):
     # Language page (first start)
     # ======================================================================
     def _build_language_page(self):
-        self.langpage.grid_columnconfigure(0, weight=1)
-        self.langpage.grid_rowconfigure(0, weight=1)
         card = ctk.CTkFrame(self.langpage, width=460, height=420, **theme.CARD_STYLE)
-        card.grid(row=0, column=0)
+        card.place(relx=0.5, rely=0.5, anchor="center")
         card.pack_propagate(False)  # children are packed: keep the card at its fixed size
-        ctk.CTkLabel(card, text="", image=theme.app_icon(96)).pack(pady=(30, 6))
+        ctk.CTkLabel(card, text="", image=theme.logo(96)).pack(pady=(30, 6))
         ctk.CTkLabel(card, text=APP_TITLE, font=("", 24, "bold")).pack()
         ctk.CTkLabel(card, text=t("lang_title"), font=("", 16, "bold")).pack(pady=(16, 2))
         ctk.CTkLabel(card, text="Programı hangi dilde kullanmak istersin?\nWhich language do you want to use?",
@@ -160,25 +176,22 @@ class App(ctk.CTk):
         self.cfg.language = code
         i18n.set_language(code)
         self.cfg.save()
-        self._build_all()
+        self._build_all(keep_language_page=True)  # the language page stays so it can slide away
         self._show_view("wizard")
 
     # ======================================================================
     # Wizard
     # ======================================================================
     def _build_wizard(self):
-        self.wizard.grid_columnconfigure(0, weight=1)
-        self.wizard.grid_rowconfigure(0, weight=1)
-
         card = ctk.CTkFrame(self.wizard, width=560, height=620, **theme.CARD_STYLE)
-        card.grid(row=0, column=0)
+        card.place(relx=0.5, rely=0.5, anchor="center")
         card.pack_propagate(False)  # children are packed: keep the card at its fixed size
 
         top = ctk.CTkFrame(card, fg_color="transparent")
         top.pack(fill="x", padx=16, pady=(12, 0))
         self._language_menu(top).pack(side="right")
 
-        ctk.CTkLabel(card, text="", image=theme.app_icon(72)).pack(pady=(2, 6))
+        ctk.CTkLabel(card, text="", image=theme.logo(76)).pack(pady=(2, 6))
         ctk.CTkLabel(card, text=APP_TITLE, font=("", 24, "bold")).pack()
         ctk.CTkLabel(card, text=t("wizard_subtitle"), text_color=theme.MUTED).pack()
 
@@ -186,7 +199,9 @@ class App(ctk.CTk):
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.pack(pady=(16, 6))
         for i, key in enumerate(STEP_KEYS):
-            label = ctk.CTkLabel(bar, text=f"{i + 1}  {t(key)}", width=110, corner_radius=14, height=28)
+            label = ctk.CTkLabel(bar, text=f"{i + 1}  {t(key)}", width=110, corner_radius=14, height=28,
+                                 fg_color=theme.FIELD, text_color=theme.MUTED)
+            label.pill = theme.FIELD  # the colour currently shown, tweened on change
             label.pack(side="left", padx=4)
             self.step_labels.append(label)
 
@@ -265,28 +280,46 @@ class App(ctk.CTk):
         return entry
 
     def _goto_step(self, index):
-        self.step = max(0, min(len(self.page_frames) - 1, index))
-        self.dashboard.grid_remove()
-        self.langpage.grid_remove()
-        self.wizard.grid(row=0, column=0, sticky="nsew")
-        self.view = "wizard"
-        for i, page in enumerate(self.page_frames):
-            if i == self.step:
-                page.pack(fill="both", expand=True)
-            else:
-                page.pack_forget()
+        index = max(0, min(len(self.page_frames) - 1, index))
+        if self.view != "wizard":          # coming back from the dashboard: the whole wizard slides in
+            self.step = index
+            self._show_view("wizard")
+            return
+        direction = 1 if index >= self.step else -1
+        old, self.step = self.step, index
+        self._apply_step(index, animate=old != index, direction=direction, old_index=old)
+
+    def _apply_step(self, index, animate=False, direction=1, old_index=None):
+        """Show wizard step `index`: slide the page, move the pills and refresh the buttons."""
+        new_page = self.page_frames[index]
+        if animate and old_index is not None and old_index != index:
+            self._page_mover.slide(self.pages, new_page, self.page_frames[old_index], direction, duration_ms=300)
+        else:
+            if self._page_mover.current:
+                self._page_mover.current.finish()
+            for page in self.page_frames:
+                page.place_forget()
+            new_page.place(relx=0, rely=0, relwidth=1, relheight=1)
         for i, label in enumerate(self.step_labels):
-            if i == self.step:
-                label.configure(fg_color=theme.ACCENT, text_color="white")
-            elif i < self.step:
-                label.configure(fg_color=theme.SUCCESS_SOFT, text_color=theme.SUCCESS_TEXT)
+            if i == index:
+                self._restyle_pill(label, theme.ACCENT, "#ffffff", animate)
+            elif i < index:
+                self._restyle_pill(label, theme.SUCCESS_SOFT, theme.SUCCESS_TEXT, animate)
             else:
-                label.configure(fg_color=theme.FIELD, text_color=theme.MUTED)
-        self.back_btn.configure(state="normal" if self.step else "disabled")
-        self.next_btn.configure(text=t("finish") if self.step == len(self.page_frames) - 1 else t("next"))
+                self._restyle_pill(label, theme.FIELD, theme.MUTED, animate)
+        self.back_btn.configure(state="normal" if index else "disabled")
+        self.next_btn.configure(text=t("finish") if index == len(self.page_frames) - 1 else t("next"))
         self.wizard_error.configure(text="")
-        if self.step == 1:
+        if index == 1:
             self.monster_entry.focus_set()
+
+    def _restyle_pill(self, label, fg, text_color, animate):
+        label.configure(text_color=text_color)
+        if animate and label.pill != fg:
+            anim.tween_color(label, "fg_color", label.pill, fg, 260)
+        else:
+            label.configure(fg_color=fg)
+        label.pill = fg
 
     def _next_step(self):
         error = self._validate_step(self.step)
@@ -327,13 +360,12 @@ class App(ctk.CTk):
         self.start_btn = ctk.CTkButton(side, text=f"{t('start')} ({HOTKEY.upper()})", height=54,
                                        font=("", 17, "bold"), corner_radius=theme.RADIUS_PILL, command=self._toggle)
         self.start_btn.pack(fill="x", padx=14, pady=(6, 14), side="bottom")
-        self._start_colors = (self.start_btn.cget("fg_color"), self.start_btn.cget("hover_color"))
         self.status = ctk.CTkLabel(side, text=t("state_idle"), anchor="w")
         self.status.pack(fill="x", padx=16, side="bottom")
 
         head = ctk.CTkFrame(side, fg_color="transparent")
         head.pack(fill="x", padx=14, pady=(16, 0))
-        ctk.CTkLabel(head, text="", image=theme.app_icon(40)).pack(side="left")
+        ctk.CTkLabel(head, text="", image=theme.logo(44)).pack(side="left")
         ctk.CTkLabel(head, text=APP_TITLE, font=("", 16, "bold")).pack(side="left", padx=(10, 0))
 
         ctk.CTkLabel(side, text=t("settings_title"), anchor="w", font=("", 14, "bold")).pack(fill="x", padx=14, pady=(18, 6))
@@ -400,12 +432,15 @@ class App(ctk.CTk):
         ]
         self.summary.configure(text="\n".join("  " + ln for ln in lines))
 
-    def _refresh_run_button(self):
-        if self.engine and self.engine.is_alive():
-            self.start_btn.configure(text=f"{t('stop')} ({HOTKEY.upper()})", **RED)
+    def _refresh_run_button(self, animate=True):
+        running = bool(self.engine and self.engine.is_alive())
+        fg, hover = (theme.DANGER, theme.DANGER_HOVER) if running else (theme.ACCENT, theme.ACCENT_HOVER)
+        self.start_btn.configure(text=f"{t('stop' if running else 'start')} ({HOTKEY.upper()})", hover_color=hover)
+        if animate and self._start_fg != fg:
+            anim.tween_color(self.start_btn, "fg_color", self._start_fg, fg, 280)
         else:
-            fg, hover = self._start_colors
-            self.start_btn.configure(text=f"{t('start')} ({HOTKEY.upper()})", fg_color=fg, hover_color=hover)
+            self.start_btn.configure(fg_color=fg)
+        self._start_fg = fg
 
     # -- game window -------------------------------------------------------
     def _refresh_windows(self):
@@ -606,8 +641,10 @@ class App(ctk.CTk):
         self.overlay.draw(rect, self.ostate.shapes(target))
 
     # -- dialogs ---------------------------------------------------------------
-    def _center(self, win, width, height):
-        """Open a dialog in the middle of the screen (width/height in unscaled px, like geometry())."""
+    def _center(self, win, width, height, fade=True):
+        """Open a dialog in the middle of the screen (width/height in unscaled px, like geometry()), fading in."""
+        if fade:
+            win.attributes("-alpha", 0.0)
         win.geometry(f"{width}x{height}")
         win.update()  # create the real window so its outer frame (title bar, borders) can be measured
         rect = winutil.window_rect(win.winfo_id())
@@ -618,6 +655,8 @@ class App(ctk.CTk):
         x = max(0, (win.winfo_screenwidth() - outer_w) // 2)
         y = max(0, (win.winfo_screenheight() - outer_h) // 2)
         win.geometry(f"+{x}+{y}")
+        if fade:
+            anim.fade_in(win, 220)
 
     def _about(self):
         win = ctk.CTkToplevel(self)
@@ -625,7 +664,7 @@ class App(ctk.CTk):
         win.attributes("-topmost", True)
         win.transient(self)
         theme.set_icon(win)
-        ctk.CTkLabel(win, text="", image=theme.app_icon(96)).pack(pady=(22, 0))
+        ctk.CTkLabel(win, text="", image=theme.logo(96)).pack(pady=(22, 0))
         ctk.CTkLabel(win, text=APP_TITLE, font=("", 20, "bold")).pack(pady=(8, 0))
         ctk.CTkLabel(win, text=t("about_version", v=__version__), text_color=theme.MUTED).pack()
         ctk.CTkLabel(win, text=t("about_desc"), justify="center", wraplength=360).pack(pady=(12, 0))

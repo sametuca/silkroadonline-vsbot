@@ -2,9 +2,10 @@
 
     python tools/make_icons.py
 
-Writes assets/app_icon.png (iOS-style rounded square on a dark gradient) and
-assets/icon.ico (16-256 px, used for the exe and the window). Committed
-outputs; rerun only when the logo changes.
+Writes assets/app_icon.png (iOS-style rounded square, light, with a soft shadow)
+and assets/icon.ico (16-256 px, used for the exe and the window). The app UI
+itself uses the transparent logo.png directly. Committed outputs; rerun only
+when the logo changes.
 """
 
 from pathlib import Path
@@ -14,11 +15,11 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 SIZE = 1024
 RADIUS = 0.2237          # Apple's icon corner radius as a fraction of the side
-GLYPH_SCALE = 0.70
+GLYPH_SCALE = 0.68
+MARGIN = 0.05            # transparent border around the tile, room for the shadow
 
 
 def gradient(size, top, bottom):
-    """Vertical gradient with a faint diagonal tint, so the tile does not look flat."""
     base = Image.new("RGB", (1, size))
     for y in range(size):
         k = y / (size - 1)
@@ -35,28 +36,29 @@ def rounded_mask(size, radius_fraction, supersample=4):
 
 def main():
     logo = Image.open(ASSETS / "logo.png").convert("RGBA")
-    tile = gradient(SIZE, (44, 44, 56), (20, 20, 26)).convert("RGBA")
+    inner = int(SIZE * (1 - 2 * MARGIN))
+    tile = gradient(inner, (255, 255, 255), (232, 232, 240)).convert("RGBA")
 
-    glyph_size = int(SIZE * GLYPH_SCALE)
+    glyph_size = int(inner * GLYPH_SCALE)
     glyph = logo.resize((glyph_size, glyph_size), Image.LANCZOS)
-    # soft glow under the glyph: the pink/blue lines stay readable on the dark tile
-    glow = glyph.filter(ImageFilter.GaussianBlur(SIZE * 0.025))
-    glow.putalpha(glow.getchannel("A").point(lambda a: int(a * 0.55)))
-    pos = ((SIZE - glyph_size) // 2, (SIZE - glyph_size) // 2)
-    tile.alpha_composite(glow, pos)
-    tile.alpha_composite(glyph, pos)
+    tile.alpha_composite(glyph, ((inner - glyph_size) // 2, (inner - glyph_size) // 2))
 
-    # hairline highlight along the top edge, like a glass tile
-    shine = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    ImageDraw.Draw(shine).rounded_rectangle((2, 2, SIZE - 3, SIZE - 3), radius=int(SIZE * RADIUS), outline=(255, 255, 255, 38), width=3)
-    tile.alpha_composite(shine)
+    # hairline edge so a white tile still reads on a white taskbar or page
+    edge = Image.new("RGBA", (inner, inner), (0, 0, 0, 0))
+    ImageDraw.Draw(edge).rounded_rectangle((1, 1, inner - 2, inner - 2), radius=int(inner * RADIUS),
+                                           outline=(0, 0, 0, 34), width=3)
+    tile.alpha_composite(edge)
+    tile.putalpha(ImageChops.multiply(tile.getchannel("A"), rounded_mask(inner, RADIUS)))
 
-    mask = rounded_mask(SIZE, RADIUS)
-    tile.putalpha(ImageChops.multiply(tile.getchannel("A"), mask))
+    canvas = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    offset = (SIZE - inner) // 2
+    shadow = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    shadow.paste((0, 0, 0, 70), (offset, offset + int(SIZE * 0.012)), rounded_mask(inner, RADIUS))
+    canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(SIZE * 0.018)))
+    canvas.alpha_composite(tile, (offset, offset))
 
-    tile.resize((512, 512), Image.LANCZOS).save(ASSETS / "app_icon.png")
-    sizes = [(s, s) for s in (16, 24, 32, 48, 64, 128, 256)]
-    tile.save(ASSETS / "icon.ico", sizes=sizes)
+    canvas.resize((512, 512), Image.LANCZOS).save(ASSETS / "app_icon.png")
+    canvas.save(ASSETS / "icon.ico", sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
     print("wrote", ASSETS / "app_icon.png", "and", ASSETS / "icon.ico")
 
 
