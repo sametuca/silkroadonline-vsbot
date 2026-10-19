@@ -54,13 +54,13 @@ def parse_names(text):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        ctk.set_appearance_mode("dark")
+        ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
         theme.apply()
+        self.withdraw()  # stay hidden until built and centred, so the window never flashes at a corner
         self.title(APP_TITLE)
         self.configure(fg_color=theme.BG)
         theme.set_icon(self)
-        self.geometry("1000x680")
         self.minsize(920, 620)
 
         self.cfg = Config.load()
@@ -84,6 +84,8 @@ class App(ctk.CTk):
         self._register_hotkey()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll)
+        self._center(self, 1000, 680)  # start in the middle of the screen
+        self.deiconify()
 
     # ======================================================================
     # Building and switching views
@@ -142,7 +144,7 @@ class App(ctk.CTk):
     def _build_language_page(self):
         self.langpage.grid_columnconfigure(0, weight=1)
         self.langpage.grid_rowconfigure(0, weight=1)
-        card = ctk.CTkFrame(self.langpage, width=460, height=420)
+        card = ctk.CTkFrame(self.langpage, width=460, height=420, **theme.CARD_STYLE)
         card.grid(row=0, column=0)
         card.pack_propagate(False)  # children are packed: keep the card at its fixed size
         ctk.CTkLabel(card, text="", image=theme.app_icon(96)).pack(pady=(30, 6))
@@ -168,7 +170,7 @@ class App(ctk.CTk):
         self.wizard.grid_columnconfigure(0, weight=1)
         self.wizard.grid_rowconfigure(0, weight=1)
 
-        card = ctk.CTkFrame(self.wizard, width=560, height=620)
+        card = ctk.CTkFrame(self.wizard, width=560, height=620, **theme.CARD_STYLE)
         card.grid(row=0, column=0)
         card.pack_propagate(False)  # children are packed: keep the card at its fixed size
 
@@ -277,7 +279,7 @@ class App(ctk.CTk):
             if i == self.step:
                 label.configure(fg_color=theme.ACCENT, text_color="white")
             elif i < self.step:
-                label.configure(fg_color="#245c36", text_color="white")
+                label.configure(fg_color=theme.SUCCESS_SOFT, text_color=theme.SUCCESS_TEXT)
             else:
                 label.configure(fg_color=theme.FIELD, text_color=theme.MUTED)
         self.back_btn.configure(state="normal" if self.step else "disabled")
@@ -317,7 +319,7 @@ class App(ctk.CTk):
         self.dashboard.grid_columnconfigure(1, weight=1)
         self.dashboard.grid_rowconfigure(0, weight=1)
 
-        side = ctk.CTkFrame(self.dashboard, width=340)
+        side = ctk.CTkFrame(self.dashboard, width=340, **theme.CARD_STYLE)
         side.grid(row=0, column=0, sticky="ns", padx=(12, 6), pady=12)
         side.grid_propagate(False)
 
@@ -351,7 +353,7 @@ class App(ctk.CTk):
         self.adv = ctk.CTkFrame(side, fg_color="transparent")
         self._build_advanced(self.adv)
 
-        main = ctk.CTkFrame(self.dashboard)
+        main = ctk.CTkFrame(self.dashboard, **theme.CARD_STYLE)
         main.grid(row=0, column=1, sticky="nsew", padx=(6, 12), pady=12)
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(1, weight=1)
