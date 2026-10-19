@@ -20,26 +20,36 @@ sends the same keyboard and mouse input a player would.
 
 1. Download `SilkroadVisionBot.exe` from [**Releases**](../../releases/latest) and double-click it (no Python needed).
    Or from source: `pip install -r requirements.txt`, then `python main.py`.
-2. Run the game in **windowed mode** and keep its window uncovered. The game window is picked automatically.
-3. Enter your attack key (e.g. `1`) and, optionally, a loot key.
+2. Run the game in **windowed mode** and keep its window uncovered.
+3. Follow the three start-up steps (prefilled from your last run):
+   1. **Game**: pick the game window.
+   2. **Monster**: type the monster's name **exactly as shown above it in the game** (case does not matter; separate
+      several monsters with commas). Not sure about the spelling? **Read the name from the screen** shows what the
+      bot sees and lets you tick it.
+   3. **Keys**: your attack key(s) (e.g. `1,2,3`), an optional loot key, and the roaming switch.
 4. Press **START** (or **F9**).
 
-The first time, the bot looks at the screen and asks:
-*"I found Mangyang (5 on screen). Should I hit these?"* Click **Yes** and the hunt begins.
+Normal, champion and giant monsters share the same name, so one name covers all of them. Your own character name is
+read from the window title (`[YourName] ...`) and ignored automatically. **Change settings** on the dashboard reopens the steps.
 
-You never type a monster list. Normal, champion and giant monsters share the same name, so a single target covers
-all of them. The target is saved: next time just press START. To switch monsters, press **Search again**.
-Your own character name is read from the window title (`[YourName] ...`) and ignored automatically. If other names
-show up (players, NPCs), only the most frequent group is ticked by default.
-
-**Test scan** shows what the bot recognises (green boxes) without attacking anything.
+**Test scan** reports in the log how many target monsters the bot sees on screen, without attacking anything.
 
 ### Roaming
 
-When no target monster is on screen for a few seconds, the character **walks to a nearby ground point** and looks
-again, changing direction every few steps. Turn it off with the **"Search by roaming when no monster"** switch.
+When no target monster is on screen for a few seconds, the bot looks at the **radar** (minimap in the top-right
+corner) instead of walking at random:
 
-> The roaming walk has no map boundary yet, so over a long time it can drift away from your starting area.
+- It walks toward the **nearest red dot** (a monster), so the search continues where monsters actually are.
+- It stays inside the **farming area**: dots farther than the area radius from the spot where the bot last saw a
+  monster are ignored (set the radius in step 3, 2 to 12 steps).
+- If the radar shows nothing, it walks back to the farming area and only searches with short steps around it.
+- It learns how the radar is oriented (rotating with the camera or fixed north) by watching how the dots move after
+  each step, so it works with any camera angle.
+
+Turn roaming off with the **"Search by roaming when no monster"** switch.
+
+> The radar is expected in the top-right corner of the game window at its default size. The walk position is
+> dead-reckoned from the clicks, so it is approximate rather than exact.
 
 ### Administrator rights (important)
 

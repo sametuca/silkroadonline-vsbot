@@ -30,3 +30,9 @@ def test_character_name_from_window_title():
     from srbot.winutil import character_name_from_title
     assert character_name_from_title(" [Murkrow] Destiny Online") == "Murkrow"
     assert character_name_from_title("Silkroad Online") == ""
+
+
+def test_parse_monster_names_from_the_wizard_input():
+    from srbot.gui import parse_names
+    assert parse_names(" mangyang ,  Mangyang, Cave   Bat ,, ") == ["mangyang", "Cave Bat"]
+    assert parse_names("") == [] and parse_names(" , ") == []

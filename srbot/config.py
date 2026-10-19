@@ -36,6 +36,7 @@ class Config:
     roam: bool = True               # walk around when no target monster is on screen
     roam_after: float = 2.5         # seconds without a target before walking
     roam_step: int = 200            # walk distance in px at 632px window height
+    roam_radius: float = 6.0        # farming-area radius around the start spot, in steps
     roam_wait: float = 1.8          # seconds to let the character walk before looking again
     detector: str = "auto"          # auto (model if trained, else OCR) | ocr | model
     model_conf: float = 0.4

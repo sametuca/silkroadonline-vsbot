@@ -20,26 +20,35 @@ bir oyuncunun gönderebileceği klavye ve fare girdisini gönderir.
 
 1. [**Releases**](../../releases/latest) sayfasından `SilkroadVisionBot.exe` dosyasını indirip çift tıkla (Python gerekmez).
    Ya da kaynaktan: `pip install -r requirements.txt`, ardından `python main.py`.
-2. Oyunu **pencere modunda** aç ve penceresinin üstünü açık tut. Oyun penceresi otomatik seçilir.
-3. Saldırı tuşunu gir (ör. `1`), istersen loot tuşunu da.
+2. Oyunu **pencere modunda** aç ve penceresinin üstünü açık tut.
+3. Açılışta üç adımı izle (bilgiler son çalıştırmadan hazır gelir):
+   1. **Oyun**: oyun penceresini seç.
+   2. **Canavar**: canavarın adını **oyunda üstünde yazdığı gibi birebir** yaz (büyük/küçük harf fark etmez; birden
+      fazla canavar için virgülle ayır). Yazımdan emin değilsen **Adı ekrandan oku** botun gördüğünü gösterir,
+      işaretleyip seçersin.
+   3. **Tuşlar**: saldırı tuşları (ör. `1,2,3`), istersen loot tuşu ve gezinme anahtarı.
 4. **BAŞLAT**'a bas (veya **F9**).
 
-İlk seferde bot ekrana bakıp sorar:
-*"Ekranda Mangyang (5 adet) buldum, bu canavarlara mı vuracağım?"* **Evet** deyince av başlar.
+Normal, şampiyon ve dev canavarlar aynı adı taşıdığı için tek ad hepsini kapsar. Kendi karakter adın pencere
+başlığından (`[Adın] ...`) okunup otomatik elenir. Panodaki **Ayarları değiştir** adımları yeniden açar.
 
-Canavar listesi yazmana gerek yok. Normal, şampiyon ve dev canavarlar aynı adı taşıdığı için tek hedef hepsini kapsar.
-Hedef kaydedilir, sonraki seferde doğrudan BAŞLAT yeter. Başka canavara geçmek için **Yeniden ara**'ya bas.
-Kendi karakter adın pencere başlığından (`[Adın] ...`) okunup otomatik elenir. Ekranda başka isimler de çıkarsa
-(oyuncu, NPC) varsayılan olarak yalnızca en kalabalık grup işaretli gelir.
-
-**Test taraması**, hiçbir şeye saldırmadan botun neyi tanıdığını yeşil kutularla gösterir.
+**Test taraması**, hiçbir şeye saldırmadan botun ekranda kaç hedef canavar gördüğünü günlüğe yazar.
 
 ### Gezinme
 
-Ekranda birkaç saniye hedef canavar olmazsa karakter **yakındaki bir zemin noktasına yürür** ve tekrar bakar.
-Her birkaç adımda yönünü değiştirir. **"Canavar yoksa gezinerek ara"** anahtarıyla kapatabilirsin.
+Ekranda birkaç saniye hedef canavar olmazsa bot rastgele yürümek yerine **radara** (sağ üst köşedeki minimap) bakar:
 
-> Gezinmenin henüz harita sınırı yok. Uzun sürede başladığın bölgeden uzaklaşabilir.
+- En yakın **kırmızı noktaya** (canavar) doğru yürür, böylece arama canavarların gerçekten olduğu yerde sürer.
+- **Kasılma alanının** içinde kalır: botun en son canavar gördüğü yerden alan yarıçapından uzaktaki noktalar yok
+  sayılır (yarıçapı 3. adımda 2 ile 12 adım arasında ayarlarsın).
+- Radar boşsa kasılma alanına geri döner ve yalnızca onun çevresinde kısa adımlarla arar.
+- Radarın yönünü (kamerayla dönüyor mu, kuzey sabit mi) her adımdan sonra noktaların kaymasına bakarak kendisi
+  öğrenir, bu yüzden her kamera açısında çalışır.
+
+**"Canavar yoksa gezinerek ara"** anahtarıyla kapatabilirsin.
+
+> Radarın oyun penceresinin sağ üst köşesinde, varsayılan boyutunda olması beklenir. Yürüme konumu tıklamalardan
+> hesaplanır, bu yüzden yaklaşıktır, birebir değildir.
 
 ### Yönetici yetkisi (önemli)
 

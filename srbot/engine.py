@@ -5,7 +5,7 @@ import threading
 import time
 from enum import Enum
 
-from . import detect, inputs, winutil
+from . import detect, inputs, radar, winutil
 from .capture import ScreenGrabber
 from .roam import Roamer
 
@@ -37,7 +37,7 @@ class BotEngine(threading.Thread):
         self.kills = 0
         self._last_idle_log = 0.0
         self._idle_since = None
-        self._roaming = False
+        self._roam_reason = None
         self.roamer = Roamer()
 
     def stop(self):
@@ -102,12 +102,14 @@ class BotEngine(threading.Thread):
                 target = self._nearest(dets, frame.shape, avoid) if frame is not None else None
                 if target is None:
                     avoid = avoid[-3:]
-                    if frame is not None and self._maybe_roam(frame, rect):
+                    if frame is not None and self._maybe_roam(grabber, frame, rect):
                         continue
                     self._log_idle()
                     self._sleep(self.cfg.scan_interval)
                     continue
-                self._idle_since, self._roaming = None, False
+                # A monster here means this is farmable ground: roaming limits are measured from this spot.
+                self.roamer.reset_home()
+                self._idle_since, self._roam_reason = None, None
 
                 if not self._confirm(grabber, rect, target):
                     continue
@@ -119,8 +121,8 @@ class BotEngine(threading.Thread):
             self.on_state(State.IDLE)
             self.on_log("Bot durdu.")
 
-    def _maybe_roam(self, frame, rect):
-        """Nothing to hit for a while: walk to a nearby ground point and look again."""
+    def _maybe_roam(self, grabber, frame, rect):
+        """Nothing to hit for a while: walk toward the radar's monster dots (within the leash) and look again."""
         if not self.cfg.roam:
             return False
         now = time.time()
@@ -129,15 +131,24 @@ class BotEngine(threading.Thread):
         if now - self._idle_since < self.cfg.roam_after or not self._focus():
             return False
         self.on_state(State.ROAMING)
-        if not self._roaming:
-            self._roaming = True
-            self.on_log("Ekranda hedef canavar yok, gezinerek aranıyor.")
-        x, y = self.roamer.next_point(frame.shape, self.cfg.roam_step, self.cfg.excludes)
-        if not inputs.click_at(rect[0] + x, rect[1] + y):
+        before = radar.read_dots(frame)
+        move = self.roamer.next_move(frame.shape, before, self.cfg.roam_step,
+                                     self.cfg.roam_radius * self.cfg.roam_step, self.cfg.excludes)
+        if move is None:
+            return False
+        if move.reason != self._roam_reason:
+            self._roam_reason = move.reason
+            self.on_log({"radar": f"Radarda {len(before)} canavar noktası var, ona doğru yürünüyor.",
+                         "home": "Radar boş, kasılma alanına geri dönülüyor.",
+                         "wander": "Radar boş, alanın içinde kısa adımlarla aranıyor."}[move.reason])
+        if not inputs.click_at(rect[0] + move.point[0], rect[1] + move.point[1]):
             self.on_log("Gezinme tıklaması reddedildi (yönetici yetkisi gerekebilir).")
             self._idle_since = now
             return False
         self._sleep(self.cfg.roam_wait)
+        after_frame, _ = self._grab(grabber)
+        if after_frame is not None:
+            self.roamer.observe(before, radar.read_dots(after_frame), move)
         return True
 
     def _log_idle(self):

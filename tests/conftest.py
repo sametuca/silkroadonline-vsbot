@@ -1,6 +1,10 @@
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytest
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def make_scene(labels, size=(632, 802)):
@@ -22,3 +26,12 @@ def make_scene(labels, size=(632, 802)):
 @pytest.fixture
 def scene():
     return make_scene
+
+
+def add_radar(img):
+    """Paste a real radar capture (5 red dots) into the top-right corner, where the game draws it."""
+    # np.fromfile + imdecode: cv2.imread cannot open paths with non-ASCII characters on Windows
+    radar = cv2.imdecode(np.fromfile(FIXTURES / "radar_live.png", np.uint8), cv2.IMREAD_COLOR)
+    out = img.copy()
+    out[0:radar.shape[0], out.shape[1] - radar.shape[1]:] = radar
+    return out

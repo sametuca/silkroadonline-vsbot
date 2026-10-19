@@ -1,9 +1,9 @@
 """CustomTkinter front-end.
 
-The whole flow is: pick the game (auto), press START. With no target yet the
-bot first looks at the screen, shows the monster names it found and asks
-"hit these?". Everything else (training, recording, detector mode) lives
-under "Gelişmiş" so the default screen stays simple.
+Start-up is a short three-step wizard (game window -> monster name -> keys),
+prefilled from the last run. After "Bitir" the dashboard shows a summary,
+the START button and the log. Training, recording and the
+detector mode live under "Gelişmiş" so the default screens stay simple.
 """
 
 import queue
@@ -17,24 +17,34 @@ import webbrowser
 from tkinter import messagebox
 
 import customtkinter as ctk
-import cv2
-from PIL import Image
 
 from . import CONTACT_EMAIL, GITHUB_URL, REPO_URL, __author__, __version__, detect, winutil
 from .capture import ScreenGrabber
 from .config import Config
 from .engine import ADMIN_HINT, BotEngine, State
 from .paths import app_dir
-from .recorder import Recorder, RecorderThread, sprite_box
+from .recorder import Recorder, RecorderThread
 
+APP_TITLE = "Silkroad Vision Bot"
 GAME_HINTS = ("silkroad", "destiny", "online", "sro")
-PREVIEW_W = 520
 HOTKEY = "f9"
 MODE_LABELS = {"auto": "Otomatik", "ocr": "Sadece OCR", "model": "Sadece model"}
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 EPOCH_DONE = re.compile(r"(\d+/\d+)\s.*\s100%")
 GRAY = {"fg_color": "gray30", "hover_color": "gray40"}
 RED = {"fg_color": "#b03030", "hover_color": "#c04040"}
+STEP_TITLES = ("Oyun", "Canavar", "Tuşlar")
+
+
+def parse_names(text):
+    """'Mangyang, Cave Bat' -> ['Mangyang', 'Cave Bat'] (case-insensitive de-duplication)."""
+    seen, names = set(), []
+    for part in text.split(","):
+        name = " ".join(part.split())
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+    return names
 
 
 class App(ctk.CTk):
@@ -42,7 +52,7 @@ class App(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.title("Silkroad Vision Bot")
+        self.title(APP_TITLE)
         self.geometry("1000x680")
         self.minsize(920, 620)
 
@@ -52,23 +62,184 @@ class App(ctk.CTk):
         self.rec_thread = None
         self.windows = {}
         self.events = queue.Queue()
-        self.latest = None
-        self._last_preview = 0.0
         self._searching = False
+        self.step = 0
 
-        self._build()
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.wizard = ctk.CTkFrame(self, fg_color="transparent")
+        self.dashboard = ctk.CTkFrame(self, fg_color="transparent")
+        self._build_wizard()
+        self._build_dashboard()
         self._refresh_windows()
-        self._render_targets()
+        self._goto_step(0)
         self._register_hotkey()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll)
 
-    # -- layout ----------------------------------------------------------
-    def _build(self):
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+    # ======================================================================
+    # Wizard
+    # ======================================================================
+    def _build_wizard(self):
+        self.wizard.grid(row=0, column=0, sticky="nsew")
+        self.wizard.grid_columnconfigure(0, weight=1)
+        self.wizard.grid_rowconfigure(0, weight=1)
 
-        side = ctk.CTkFrame(self, width=340)
+        card = ctk.CTkFrame(self.wizard, width=560, height=520)
+        card.grid(row=0, column=0)
+        card.grid_propagate(False)
+
+        ctk.CTkLabel(card, text=APP_TITLE, font=("", 24, "bold")).pack(pady=(26, 2))
+        ctk.CTkLabel(card, text="Birkaç adımda hazırla", text_color="gray70").pack()
+
+        self.step_labels = []
+        bar = ctk.CTkFrame(card, fg_color="transparent")
+        bar.pack(pady=(16, 6))
+        for i, title in enumerate(STEP_TITLES):
+            label = ctk.CTkLabel(bar, text=f"{i + 1}  {title}", width=110, corner_radius=14, height=28)
+            label.pack(side="left", padx=4)
+            self.step_labels.append(label)
+
+        self.pages = ctk.CTkFrame(card, fg_color="transparent")
+        self.pages.pack(fill="both", expand=True, padx=34, pady=(10, 0))
+        self._build_page_window(self._new_page())
+        self._build_page_monster(self._new_page())
+        self._build_page_keys(self._new_page())
+
+        nav = ctk.CTkFrame(card, fg_color="transparent")
+        nav.pack(fill="x", padx=34, pady=(8, 26), side="bottom")
+        self.back_btn = ctk.CTkButton(nav, text="Geri", width=110, command=lambda: self._goto_step(self.step - 1), **GRAY)
+        self.back_btn.pack(side="left")
+        self.next_btn = ctk.CTkButton(nav, text="İleri", width=150, command=self._next_step)
+        self.next_btn.pack(side="right")
+        self.wizard_error = ctk.CTkLabel(card, text="", text_color="#e07070", wraplength=480)
+        self.wizard_error.pack(side="bottom")
+
+    def _new_page(self):
+        page = ctk.CTkFrame(self.pages, fg_color="transparent")
+        self.page_frames = getattr(self, "page_frames", [])
+        self.page_frames.append(page)
+        return page
+
+    def _heading(self, parent, title, hint):
+        ctk.CTkLabel(parent, text=title, font=("", 17, "bold"), anchor="w").pack(fill="x", pady=(8, 2))
+        ctk.CTkLabel(parent, text=hint, text_color="gray70", anchor="w", justify="left", wraplength=480).pack(fill="x")
+
+    def _build_page_window(self, page):
+        self._heading(page, "Oyun penceresini seç",
+                      "Oyunu pencere modunda aç. Pencere listede yoksa oyunu açıp ⟳ düğmesine bas.")
+        row = ctk.CTkFrame(page, fg_color="transparent")
+        row.pack(fill="x", pady=(16, 0))
+        self.window_menu = ctk.CTkOptionMenu(row, values=["-"], command=self._on_window, height=36)
+        self.window_menu.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(row, text="⟳", width=42, height=36, command=self._refresh_windows).pack(side="left", padx=(8, 0))
+        self.admin_box = ctk.CTkFrame(page, fg_color="#5a2a2a")
+        ctk.CTkLabel(self.admin_box, justify="left", anchor="w",
+                     text="Oyun yönetici olarak çalışıyor. Bot tuş gönderebilmek için\nde yönetici olmalı.").pack(
+            fill="x", padx=12, pady=(10, 4))
+        ctk.CTkButton(self.admin_box, text="Yönetici olarak yeniden başlat", command=self._relaunch_admin,
+                      fg_color="#c04040", hover_color="#d05050").pack(fill="x", padx=12, pady=(0, 10))
+
+    def _build_page_monster(self, page):
+        self._heading(page, "Hangi canavara vuracağız?",
+                      "Oyunda canavarın üstünde yazan adı birebir aynı yaz (büyük/küçük harf fark etmez). "
+                      "Birden fazla canavar için virgülle ayır.")
+        self.monster_entry = ctk.CTkEntry(page, height=40, font=("", 15), placeholder_text="Örn: Mangyang")
+        self.monster_entry.insert(0, ", ".join(self.cfg.monsters))
+        self.monster_entry.pack(fill="x", pady=(16, 0))
+        self.monster_entry.bind("<Return>", lambda _e: self._next_step())
+        self.search_btn = ctk.CTkButton(page, text="🔍  Adı ekrandan oku (isteğe bağlı)", command=self._search, **GRAY)
+        self.search_btn.pack(fill="x", pady=(10, 0))
+        ctk.CTkLabel(page, anchor="w", justify="left", text_color="gray60", wraplength=480,
+                     text="Normal, şampiyon ve dev canavarlar aynı adı taşır, bu yüzden tek ad hepsini kapsar.").pack(
+            fill="x", pady=(12, 0))
+
+    def _build_page_keys(self, page):
+        self._heading(page, "Tuşlar ve seçenekler",
+                      "Skill çubuğundaki tuşları gir. Birden fazlası sırayla basılır (örn. 1,2,3).")
+        self.attack_entry = self._labeled_entry(page, "Saldırı tuşları", ",".join(self.cfg.attack_keys))
+        self.loot_entry = self._labeled_entry(page, "Loot tuşu (boş bırakırsan kapalı)", self.cfg.loot_key)
+        self.roam_switch = ctk.CTkSwitch(page, text="Canavar yoksa gezinerek ara")
+        if self.cfg.roam:
+            self.roam_switch.select()
+        self.roam_switch.pack(anchor="w", pady=(14, 0))
+        self.radius_label = ctk.CTkLabel(page, text="", anchor="w", text_color="gray70")
+        self.radius_label.pack(fill="x", pady=(10, 0))
+        self.radius_slider = ctk.CTkSlider(page, from_=2, to=12, number_of_steps=10, command=self._on_radius)
+        self.radius_slider.set(self.cfg.roam_radius)
+        self.radius_slider.pack(fill="x")
+        self._on_radius(self.cfg.roam_radius)
+
+    def _on_radius(self, value):
+        self.radius_label.configure(
+            text=f"Kasılma alanı: başladığın yerden en fazla {int(round(value))} adım uzağa gider "
+                 "(canavarı gördükçe merkez kayar)")
+
+    def _labeled_entry(self, parent, label, value):
+        ctk.CTkLabel(parent, text=label, anchor="w", text_color="gray70").pack(fill="x", pady=(14, 0))
+        entry = ctk.CTkEntry(parent, height=36)
+        entry.insert(0, value)
+        entry.pack(fill="x")
+        return entry
+
+    def _goto_step(self, index):
+        self.step = max(0, min(len(self.page_frames) - 1, index))
+        self.dashboard.grid_remove()
+        self.wizard.grid()
+        for i, page in enumerate(self.page_frames):
+            if i == self.step:
+                page.pack(fill="both", expand=True)
+            else:
+                page.pack_forget()
+        for i, label in enumerate(self.step_labels):
+            if i == self.step:
+                label.configure(fg_color="#1f6aa5", text_color="white")
+            elif i < self.step:
+                label.configure(fg_color="#2b5a3a", text_color="white")
+            else:
+                label.configure(fg_color="gray25", text_color="gray70")
+        self.back_btn.configure(state="normal" if self.step else "disabled")
+        self.next_btn.configure(text="Bitir" if self.step == len(self.page_frames) - 1 else "İleri")
+        self.wizard_error.configure(text="")
+        if self.step == 0:
+            self._update_admin_banner()
+        if self.step == 1:
+            self.monster_entry.focus_set()
+
+    def _next_step(self):
+        error = self._validate_step(self.step)
+        if error:
+            self.wizard_error.configure(text=error)
+            return
+        if self.step == len(self.page_frames) - 1:
+            self._finish_wizard()
+        else:
+            self._goto_step(self.step + 1)
+
+    def _validate_step(self, step):
+        if step == 0 and not self._hwnd():
+            return "Önce oyun penceresini seç. Oyun açık değilse aç ve ⟳ düğmesine bas."
+        if step == 1 and not parse_names(self.monster_entry.get()):
+            return "Canavarın adını yaz (oyunda üstünde göründüğü gibi)."
+        return ""
+
+    def _finish_wizard(self):
+        self.cfg.monsters = parse_names(self.monster_entry.get())
+        self._apply_inputs()
+        self._render_summary()
+        self.wizard.grid_remove()
+        self.dashboard.grid()
+        self._log("Hazır. BAŞLAT'a basınca bot oyun penceresini öne alıp avlanmaya başlar.")
+
+    # ======================================================================
+    # Dashboard
+    # ======================================================================
+    def _build_dashboard(self):
+        self.dashboard.grid(row=0, column=0, sticky="nsew")
+        self.dashboard.grid_columnconfigure(1, weight=1)
+        self.dashboard.grid_rowconfigure(0, weight=1)
+
+        side = ctk.CTkFrame(self.dashboard, width=340)
         side.grid(row=0, column=0, sticky="ns", padx=(12, 6), pady=12)
         side.grid_propagate(False)
 
@@ -80,56 +251,29 @@ class App(ctk.CTk):
         self.status = ctk.CTkLabel(side, text=State.IDLE.value, anchor="w")
         self.status.pack(fill="x", padx=16, side="bottom")
 
-        self.admin_box = ctk.CTkFrame(side, fg_color="#5a2a2a")
-        ctk.CTkLabel(self.admin_box, text="Oyun yönetici olarak çalışıyor.\nBot tuş gönderebilmek için de\nyönetici olmalı.",
-                     justify="left", anchor="w").pack(fill="x", padx=10, pady=(8, 4))
-        ctk.CTkButton(self.admin_box, text="Yönetici olarak yeniden başlat", command=self._relaunch_admin,
-                      fg_color="#c04040", hover_color="#d05050").pack(fill="x", padx=10, pady=(0, 8))
-
-        ctk.CTkLabel(side, text="Oyun penceresi", anchor="w", font=("", 13, "bold")).pack(fill="x", padx=14, pady=(14, 4))
-        row = ctk.CTkFrame(side, fg_color="transparent")
-        row.pack(fill="x", padx=14)
-        self.window_menu = ctk.CTkOptionMenu(row, values=["-"], command=self._on_window)
-        self.window_menu.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(row, text="⟳", width=34, command=self._refresh_windows).pack(side="left", padx=(6, 0))
-        self.admin_anchor = ctk.CTkFrame(side, fg_color="transparent", height=0)
-        self.admin_anchor.pack(fill="x")
-
-        ctk.CTkLabel(side, text="Hedef canavar", anchor="w", font=("", 13, "bold")).pack(fill="x", padx=14, pady=(16, 4))
-        self.target_label = ctk.CTkLabel(side, text="", anchor="w", justify="left", wraplength=300,
-                                         fg_color="gray20", corner_radius=6)
-        self.target_label.pack(fill="x", padx=14, ipady=8)
-        self.search_btn = ctk.CTkButton(side, text="🔍  Canavar ara", command=lambda: self._search(False))
-        self.search_btn.pack(fill="x", padx=14, pady=(6, 0))
-
-        ctk.CTkLabel(side, text="Tuşlar", anchor="w", font=("", 13, "bold")).pack(fill="x", padx=14, pady=(16, 4))
-        self.attack_entry = self._labeled_entry(side, "Saldırı tuşları (virgülle: 1,2,3)", ",".join(self.cfg.attack_keys))
-        self.loot_entry = self._labeled_entry(side, "Loot tuşu (boş bırakırsan kapalı)", self.cfg.loot_key)
-
-        self.roam_switch = ctk.CTkSwitch(side, text="Canavar yoksa gezinerek ara")
-        if self.cfg.roam:
-            self.roam_switch.select()
-        self.roam_switch.pack(anchor="w", padx=14, pady=(4, 0))
+        ctk.CTkLabel(side, text="Hazırlanan ayarlar", anchor="w", font=("", 14, "bold")).pack(fill="x", padx=14, pady=(16, 6))
+        self.summary = ctk.CTkLabel(side, text="", anchor="w", justify="left", wraplength=300,
+                                    fg_color="gray20", corner_radius=6)
+        self.summary.pack(fill="x", padx=14, ipady=10)
+        ctk.CTkButton(side, text="⚙  Ayarları değiştir", command=lambda: self._goto_step(0), **GRAY).pack(
+            fill="x", padx=14, pady=(8, 0))
 
         self.adv_switch = ctk.CTkSwitch(side, text="Gelişmiş", command=self._toggle_advanced)
-        self.adv_switch.pack(anchor="w", padx=14, pady=(10, 0))
+        self.adv_switch.pack(anchor="w", padx=14, pady=(18, 0))
         self.adv = ctk.CTkFrame(side, fg_color="transparent")
         self._build_advanced(self.adv)
 
-        main = ctk.CTkFrame(self)
+        main = ctk.CTkFrame(self.dashboard)
         main.grid(row=0, column=1, sticky="nsew", padx=(6, 12), pady=12)
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(2, weight=1)
+        main.grid_rowconfigure(1, weight=1)
         bar = ctk.CTkFrame(main, fg_color="transparent")
         bar.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 4))
-        ctk.CTkLabel(bar, text="Canlı önizleme", font=("", 14, "bold")).pack(side="left")
+        ctk.CTkLabel(bar, text="Günlük", font=("", 14, "bold")).pack(side="left")
         ctk.CTkButton(bar, text="Hakkında", width=80, command=self._about, **GRAY).pack(side="right")
         ctk.CTkButton(bar, text="Test taraması", width=110, command=self._test_scan, **GRAY).pack(side="right", padx=(0, 6))
-        self.preview = ctk.CTkLabel(main, text="Başlat'a basınca bot ekranı burada gösterir.",
-                                    fg_color="gray14", corner_radius=6, height=300)
-        self.preview.grid(row=1, column=0, sticky="ew", padx=12, pady=4)
         self.log = ctk.CTkTextbox(main, state="disabled")
-        self.log.grid(row=2, column=0, sticky="nsew", padx=12, pady=(4, 12))
+        self.log.grid(row=1, column=0, sticky="nsew", padx=12, pady=(4, 12))
 
     def _build_advanced(self, parent):
         row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -152,17 +296,22 @@ class App(ctk.CTk):
         else:
             self.adv.pack_forget()
 
-    def _labeled_entry(self, parent, label, value):
-        ctk.CTkLabel(parent, text=label, anchor="w", text_color="gray70").pack(fill="x", padx=14)
-        entry = ctk.CTkEntry(parent)
-        entry.insert(0, value)
-        entry.pack(fill="x", padx=14, pady=(0, 6))
-        return entry
+    def _render_summary(self):
+        keys = ", ".join(self.cfg.attack_keys) or "yok"
+        lines = [
+            f"Oyun:  {self.window_menu.get().strip()}",
+            f"Hedef:  {', '.join(self.cfg.monsters) or '-'}",
+            f"Saldırı tuşları:  {keys}",
+            f"Loot tuşu:  {self.cfg.loot_key or 'kapalı'}",
+            f"Gezinme:  {'radara göre, ' + str(int(self.cfg.roam_radius)) + ' adım alan' if self.cfg.roam else 'kapalı'}",
+        ]
+        self.summary.configure(text="\n".join("  " + ln for ln in lines))
 
     # -- game window + admin ---------------------------------------------
     def _refresh_windows(self):
         found = winutil.enumerate_top_level_windows()
-        self.windows = {title: hwnd for hwnd, title, _ in found}
+        # Never offer this program's own window as "the game" (its title contains "Silkroad").
+        self.windows = {title: hwnd for hwnd, title, _ in found if title.strip() != APP_TITLE}
         titles = list(self.windows) or ["-"]
         self.window_menu.configure(values=titles)
         pick = next((t for t in titles if t == self.cfg.window_title), None) or \
@@ -186,7 +335,7 @@ class App(ctk.CTk):
 
     def _update_admin_banner(self):
         if self._needs_admin():
-            self.admin_box.pack(fill="x", padx=14, pady=(10, 0), after=self.admin_anchor)
+            self.admin_box.pack(fill="x", pady=(16, 0))
         else:
             self.admin_box.pack_forget()
 
@@ -197,30 +346,20 @@ class App(ctk.CTk):
         else:
             self._log("Yönetici olarak yeniden başlatılamadı (UAC penceresi reddedilmiş olabilir).")
 
-    # -- targets ---------------------------------------------------------
-    def _render_targets(self):
-        if self.cfg.monsters:
-            self.target_label.configure(text="  " + ",  ".join(self.cfg.monsters))
-            self.search_btn.configure(text="🔍  Yeniden ara", **GRAY)
-        else:
-            self.target_label.configure(text="  Henüz seçilmedi: 'Canavar ara'ya bas\n  ya da doğrudan BAŞLAT'a bas.")
-            self.search_btn.configure(text="🔍  Canavar ara", fg_color=self._start_colors[0],
-                                      hover_color=self._start_colors[1])
-
-    def _search(self, then_start):
-        """Look at the screen once, then ask which of the found names to hit."""
+    # -- reading the name from the screen (optional helper) ----------------
+    def _search(self):
+        """Look at the screen once and offer the names found, to avoid typos."""
         if self._searching:
             return
         hwnd = self._hwnd()
         if not hwnd:
-            self._log("Önce oyun penceresini seç.")
+            self.wizard_error.configure(text="Önce oyun penceresini seç.")
             return
         self._searching = True
         self.search_btn.configure(state="disabled", text="Aranıyor...")
-        self._log("Ekran taranıyor...")
-        threading.Thread(target=self._search_worker, args=(hwnd, then_start), daemon=True).start()
+        threading.Thread(target=self._search_worker, args=(hwnd,), daemon=True).start()
 
-    def _search_worker(self, hwnd, then_start):
+    def _search_worker(self, hwnd):
         grabber = ScreenGrabber()
         try:
             winutil.bring_window_to_front(hwnd)  # the capture reads screen pixels: nothing may cover the game
@@ -233,39 +372,35 @@ class App(ctk.CTk):
                     frames.append(frame)
                 time.sleep(0.25)
             groups = detect.find_targets(frames, self.cfg, self.cfg.player_name) if frames else []
-            self.events.put(("targets", (groups, frames[0] if frames else None, then_start)))
+            self.events.put(("targets", groups))
         except Exception as exc:
             self.events.put(("log", f"Arama hatası: {exc}"))
-            self.events.put(("targets", ([], None, False)))
+            self.events.put(("targets", []))
         finally:
             grabber.close()
 
-    def _show_targets_dialog(self, groups, frame, then_start):
+    def _show_targets_dialog(self, groups):
         self._searching = False
-        self.search_btn.configure(state="normal")
-        self._render_targets()
+        self.search_btn.configure(state="normal", text="🔍  Adı ekrandan oku (isteğe bağlı)")
         self.lift()
-        if frame is not None:
-            self._show(frame, [], extra_boxes=[b for g in groups for b in g.boxes])
-
         win = ctk.CTkToplevel(self)
         win.title("Canavarlar bulundu" if groups else "Canavar bulunamadı")
-        win.geometry("400x%d" % (200 + 34 * len(groups)))
+        win.geometry("400x%d" % (210 + 34 * len(groups)))
         win.attributes("-topmost", True)
         win.transient(self)
 
+        row = ctk.CTkFrame(win, fg_color="transparent")
+        row.pack(side="bottom", fill="x", padx=20, pady=16)
         if not groups:
             ctk.CTkLabel(win, wraplength=360, justify="left",
-                         text="Ekranda canavar ismi okunamadı.\n\nKarakterini canavarların yakınına götür, "
-                              "oyun penceresinin üstünün açık olduğundan emin ol ve tekrar ara.").pack(padx=20, pady=20)
-            row = ctk.CTkFrame(win, fg_color="transparent")
-            row.pack(side="bottom", fill="x", padx=20, pady=16)
-            ctk.CTkButton(row, text="Tekrar ara", command=lambda: (win.destroy(), self._search(then_start))).pack(
+                         text="Ekranda canavar ismi okunamadı.\n\nKarakterini canavarların yakınına götür, oyun "
+                              "penceresinin üstünün açık olduğundan emin ol ya da adı elle yaz.").pack(padx=20, pady=20)
+            ctk.CTkButton(row, text="Tekrar ara", command=lambda: (win.destroy(), self._search())).pack(
                 side="left", expand=True, fill="x", padx=(0, 6))
             ctk.CTkButton(row, text="Kapat", command=win.destroy, **GRAY).pack(side="left", expand=True, fill="x")
             return
 
-        ctk.CTkLabel(win, text="Ekranda şunları buldum.\nBu canavarlara mı vuracağım?",
+        ctk.CTkLabel(win, text="Ekranda şunları buldum.\nHangisine vuracağız?",
                      font=("", 14, "bold"), justify="left").pack(anchor="w", padx=20, pady=(16, 8))
         checks = []
         for i, g in enumerate(groups):
@@ -279,27 +414,19 @@ class App(ctk.CTk):
         def accept():
             chosen = [name for name, var in checks if var.get()]
             win.destroy()
-            if not chosen:
-                self._log("Hiçbir canavar seçilmedi.")
-                return
-            self.cfg.monsters = chosen
-            self.cfg.save()
-            self._render_targets()
-            self._log("Hedef: " + ", ".join(chosen))
-            if then_start:
-                self._start()
+            if chosen:
+                self.monster_entry.delete(0, "end")
+                self.monster_entry.insert(0, ", ".join(chosen))
 
-        row = ctk.CTkFrame(win, fg_color="transparent")
-        row.pack(side="bottom", fill="x", padx=20, pady=16)
-        ctk.CTkButton(row, text="Evet, bunlara vur", command=accept).pack(side="left", expand=True, fill="x", padx=(0, 6))
-        ctk.CTkButton(row, text="Hayır", command=win.destroy, **GRAY).pack(side="left", expand=True, fill="x")
+        ctk.CTkButton(row, text="Bunu kullan", command=accept).pack(side="left", expand=True, fill="x", padx=(0, 6))
+        ctk.CTkButton(row, text="İptal", command=win.destroy, **GRAY).pack(side="left", expand=True, fill="x")
 
-    # -- scanning / preview ---------------------------------------------
+    # -- test scan ----------------------------------------------------------
     def _grab_once(self):
         hwnd = self._hwnd()
         rect = hwnd and winutil.get_window_client_rect_on_screen(hwnd)
         if not rect:
-            self._log("Önce oyun penceresini seç.")
+            self._log("Oyun penceresi bulunamadı. 'Ayarları değiştir' ile yeniden seç.")
             return None
         grabber = ScreenGrabber()
         try:
@@ -308,60 +435,48 @@ class App(ctk.CTk):
             grabber.close()
 
     def _test_scan(self):
+        """Look once, attack nothing, and report what the bot recognises."""
         if not self.cfg.monsters:
-            self._log("Önce hedef seç ('Canavar ara').")
+            self._log("Önce hedef canavarı gir ('Ayarları değiştir').")
             return
         frame = self._grab_once()
-        if frame is not None:
-            dets = detect.detect(frame, self.cfg)
-            self._show(frame, dets)
-            self._log(f"Test taraması ({detect.active_mode(self.cfg).upper()}): {len(dets)} canavar bulundu.")
-
-    def _show(self, frame, dets, extra_boxes=()):
-        img = frame.copy()
-        for x, y, w, h in extra_boxes:
-            cv2.rectangle(img, (x - 2, y - 2), (x + w + 2, y + h + 2), (0, 255, 0), 2)
-        for d in dets:
-            x, y, w, h = d.box
-            cv2.rectangle(img, (x - 2, y - 2), (x + w + 2, y + h + 2), (0, 255, 0), 2)
-            cv2.circle(img, d.click, 5, (0, 0, 255), -1)
-            if self.recorder.enabled and d.source == "ocr":
-                sx, sy, sw, sh = sprite_box(d, frame.shape)
-                cv2.rectangle(img, (sx, sy), (sx + sw, sy + sh), (255, 160, 0), 1)
-        scale = PREVIEW_W / img.shape[1]
-        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-        pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        photo = ctk.CTkImage(pil, size=pil.size)
-        self.preview.configure(image=photo, text="", height=pil.size[1])
-        self.preview.image = photo
+        if frame is None:
+            return
+        dets = detect.detect(frame, self.cfg)
+        mode = detect.active_mode(self.cfg).upper()
+        if dets:
+            names = ", ".join(sorted({d.name for d in dets}))
+            self._log(f"Test taraması ({mode}): {len(dets)} canavar bulundu ({names}).")
+        else:
+            self._log(f"Test taraması ({mode}): hedef canavar görünmüyor. Oyun penceresinin üstü açık mı, ad doğru mu?")
 
     # -- run control -----------------------------------------------------
     def _apply_inputs(self):
         self.cfg.attack_keys = [k.strip() for k in self.attack_entry.get().split(",") if k.strip()]
         self.cfg.loot_key = self.loot_entry.get().strip()
         self.cfg.roam = bool(self.roam_switch.get())
+        self.cfg.roam_radius = float(round(self.radius_slider.get()))
         self.cfg.save()
 
     def _toggle(self):
         if self.engine and self.engine.is_alive():
             self.engine.stop()
             return
-        if not self._hwnd():
-            self._log("Önce oyun penceresini seç.")
+        hwnd = self._hwnd()
+        if not hwnd or not winutil.is_window_valid(hwnd):
+            self._log("Oyun penceresi bulunamadı. 'Ayarları değiştir' ile yeniden seç.")
             return
         if self._needs_admin():
-            self._update_admin_banner()
             if messagebox.askyesno("Yönetici yetkisi gerekli", ADMIN_HINT + "\n\nŞimdi yönetici olarak yeniden başlatayım mı?"):
                 self._relaunch_admin()
             return
         if not self.cfg.monsters:
-            self._search(then_start=True)  # no target yet: look, ask, then go
+            self._goto_step(1)
             return
-        self._start()
+        self._start(hwnd)
 
-    def _start(self):
-        hwnd = self._hwnd()
-        if not hwnd or (self.engine and self.engine.is_alive()):
+    def _start(self, hwnd):
+        if self.engine and self.engine.is_alive():
             return
         self._apply_inputs()
         if not self.cfg.attack_keys:
@@ -370,7 +485,6 @@ class App(ctk.CTk):
             self.cfg, hwnd,
             on_log=lambda m: self.events.put(("log", m)),
             on_state=lambda s: self.events.put(("state", s)),
-            on_frame=lambda f, d: setattr(self, "latest", (f, d)),
             recorder=self.recorder,
         )
         self.engine.start()
@@ -389,7 +503,7 @@ class App(ctk.CTk):
         win.geometry("380x330")
         win.attributes("-topmost", True)
         win.transient(self)
-        ctk.CTkLabel(win, text="Silkroad Vision Bot", font=("", 20, "bold")).pack(pady=(22, 0))
+        ctk.CTkLabel(win, text=APP_TITLE, font=("", 20, "bold")).pack(pady=(22, 0))
         ctk.CTkLabel(win, text=f"Sürüm {__version__}", text_color="gray70").pack()
         ctk.CTkLabel(win, text="Ekrandaki canavarları isim etiketinden tanıyan,\nbellek okumayan açık kaynaklı av botu.",
                      justify="center").pack(pady=(12, 0))
@@ -411,7 +525,7 @@ class App(ctk.CTk):
             self._log(f"Veri toplama durdu. Veri setinde {self.recorder.saved} kare var.")
         else:
             if not self.cfg.monsters:
-                self._log("Önce hedef seç; etiketler canavar isminden üretilir.")
+                self._log("Önce hedef canavarı gir; etiketler canavar isminden üretilir.")
                 return
             hwnd = self._hwnd()
             if not hwnd:
@@ -424,8 +538,7 @@ class App(ctk.CTk):
             else:
                 self.rec_thread = RecorderThread(
                     self.cfg, hwnd, self.recorder,
-                    on_log=lambda m: self.events.put(("log", m)),
-                    on_frame=lambda f, d: setattr(self, "latest", (f, d)))
+                    on_log=lambda m: self.events.put(("log", m)))
                 self.rec_thread.start()
         self._update_rec_label()
 
@@ -482,16 +595,12 @@ class App(ctk.CTk):
                     fg, hover = self._start_colors
                     self.start_btn.configure(text=f"BAŞLAT ({HOTKEY.upper()})", fg_color=fg, hover_color=hover)
             elif kind == "targets":
-                self._show_targets_dialog(*payload)
+                self._show_targets_dialog(payload)
             elif kind == "train_done":
                 self.train_btn.configure(state="normal", text="Modeli eğit")
             elif kind == "toggle":
-                self._toggle()
-        if self.latest and time.time() - self._last_preview > 0.4:
-            self._last_preview = time.time()
-            frame, dets = self.latest
-            self.latest = None
-            self._show(frame, dets)
+                if self.dashboard.winfo_ismapped():  # the hotkey only drives the dashboard, not the wizard
+                    self._toggle()
         self._update_rec_label()
         self.after(100, self._poll)
 
