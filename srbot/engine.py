@@ -1,57 +1,73 @@
-"""Hunt loop on a worker thread.
+"""Hunt loop on a worker thread, fed by a scanner thread.
 
-Selecting a monster is a click on its name label. What happens next is read
-from the game's own target window (see target.py):
+A second thread scans the screen non-stop (about ten times a second). The hunt
+loop therefore never waits for a scan: when a monster dies, the next target is
+picked from a scan that is only a moment old, and the dying monster's label is
+followed during the whole fight so its corpse (dead monsters keep their name
+label) is known and never clicked.
 
-* empty HP bar right after the click -> that was a corpse (dead monsters keep
-  their label): remember the spot and click the next monster of the SAME scan,
-  without scanning again;
-* filled bar -> attack, watching only that window (milliseconds) until the bar
-  empties or the window disappears, then move on at once;
-* window unreadable on this game/skin -> fall back to the old behaviour
-  (track the name label), so nothing is lost.
+Click a monster's name label and attack at once: the first attack key goes out
+right after the click, and the check that the selection worked is made WHILE
+attacking, never as a wait in front of it. The check reads the game's own target
+window (see target.py):
+
+* empty bar and never alive since the click -> it was a corpse: ignore its spot;
+* bar filled and then emptied (or the window vanished) -> killed: next monster;
+* the window cannot be seen at all (interface hidden, other skin) -> "blind"
+  fights: attack for a short, fixed time, then move on.
 """
 
 import math
 import os
 import threading
 import time
+from dataclasses import dataclass
 from enum import Enum
 
 import cv2
 from rapidfuzz import fuzz
 
 from . import detect, inputs, radar, winutil
-from .paths import data_path
 from .capture import ScreenGrabber
 from .i18n import t
+from .paths import data_path
 from .roam import PLAYER, Roamer
-from .target import Panel, read_panel
+from .target import read_panel
 
-POLL = 0.05             # seconds between target-window reads while fighting
-SELECT_LAG = 0.12       # the window needs a moment to switch to the newly clicked monster
-PANEL_WAIT = 0.35       # how long to wait for the window to appear after a click
-MAX_TRIES = 5           # monsters tried from one scan before scanning again
-CORPSE_TTL = 120.0      # seconds a corpse's label spot is ignored
+POLL = 0.05             # seconds between looks at the game while fighting
+CORPSE_CONFIRM = 0.25   # an empty bar must persist this long before "corpse" (the window lags after a click)
+PANEL_GRACE = 0.8       # blind-fight check: how long without a target window before it counts as unreadable
+SELECT_GRACE = 0.6      # when the window is known to work it must show up this soon after a click, else the click missed
+CORPSE_TTL = 60.0       # seconds a corpse's label spot is ignored
 ZONE_RADIUS = 45        # px (at 632 px window height) around a remembered spot
 STALL_SECONDS = 12.0    # a fight whose target loses no health for this long is abandoned
 PANEL_FAILS_TO_GIVE_UP = 3
-CLICK_HEIGHTS = (1.0, 0.45, 1.65)  # click offsets below the label, as multiples of the configured one: tried in turn
+CLICK_HEIGHTS = (1.0, 0.45, 1.65)  # click offsets below the label, as multiples of the configured one
 MAX_DEBUG_FRAMES = 6
-LABEL_GONE_SECONDS = 1.5  # label-based mode: the label must be missing this long before the monster counts as dead
+SCAN_PAUSE = 0.01       # the scanner thread's pause between scans
+SCAN_WAIT = 2.0         # longest wait for a new scan before the hunt loop looks around again
+
+
+@dataclass
+class Scan:
+    id: int
+    shape: tuple
+    rect: tuple
+    scale: float
+    frame: object
+    dets: list
 
 
 class State(str, Enum):
     IDLE = "Beklemede"
     SCANNING = "Canavar aranıyor"
-    CONFIRMING = "Hedef doğrulanıyor"
     ATTACKING = "Saldırıyor"
     ROAMING = "Canavar aranıyor (geziyor)"
 
 
 class BotEngine(threading.Thread):
-    """Callbacks (all called from the worker thread):
-    on_log(str), on_state(State), on_frame(bgr_frame, detections)."""
+    """Callbacks (called from the worker threads):
+    on_log(str), on_state(State), on_frame(bgr_frame, detections), on_roam((x, y))."""
 
     def __init__(self, cfg, hwnd, on_log=None, on_state=None, on_frame=None, recorder=None, on_roam=None):
         super().__init__(daemon=True)
@@ -69,13 +85,18 @@ class BotEngine(threading.Thread):
         self._roam_reason = None
         self.roamer = Roamer()
         self.zones = []          # [(x, y, expires_at)] label spots to ignore: corpses, unreachable monsters
-        self.panel_ok = None     # None = not known yet, True = target window readable, False = use name labels
+        self.panel_ok = None     # None = not known yet, True = target window readable, False = fight blind
         self._panel_misses = 0
+        self._height = 0         # index into CLICK_HEIGHTS: advances when a click selects nothing, stays when one works
         self._debug_saved = 0
         self._scale = 1.0
+        self._latest = None      # newest Scan from the scanner thread
+        self._scan_cond = threading.Condition()
 
     def stop(self):
         self._stop_evt.set()
+        with self._scan_cond:
+            self._scan_cond.notify_all()
 
     # -- helpers ---------------------------------------------------------
     def _sleep(self, seconds):
@@ -92,16 +113,6 @@ class BotEngine(threading.Thread):
             winutil.bring_window_to_front(self.hwnd)
             self._sleep(0.15)
         return winutil.is_foreground(self.hwnd)
-
-    def _scan(self, grabber):
-        frame, rect = self._grab(grabber)
-        if frame is None:
-            return None, None, []
-        dets = detect.detect(frame, self.cfg)
-        self.on_frame(frame, dets)
-        if self.recorder:
-            self.recorder.maybe_save(frame, dets)
-        return frame, rect, dets
 
     def _mark(self, pos, ttl):
         """Ignore the label at `pos` for `ttl` seconds."""
@@ -127,9 +138,56 @@ class BotEngine(threading.Thread):
             return False
         return True
 
+    def _click_point(self, target, height):
+        """Where to click `target`; `height` scales how far below its label (or how low on its body)."""
+        x0, y0, w, h = target.box
+        if target.source == "model":
+            return target.click[0], int(target.click[1] + (height - 1.0) * 0.25 * h)
+        return x0 + w // 2, int(y0 + h + self.cfg.click_offset * self._scale * height)
+
+    # -- the scanner thread ---------------------------------------------------
+    def _scanner(self):
+        """Scan the screen over and over; the hunt loop only ever reads the newest result."""
+        grabber = ScreenGrabber()  # mss handles are per thread
+        scan_id, warned = 0, False
+        try:
+            while not self._stop_evt.is_set():
+                try:
+                    frame, rect = self._grab(grabber)
+                    if frame is not None:
+                        dets = detect.detect(frame, self.cfg)
+                        self.on_frame(frame, dets)
+                        if self.recorder:
+                            self.recorder.maybe_save(frame, dets)
+                        scan_id += 1
+                        scan = Scan(scan_id, frame.shape, rect, rect_scale(rect), frame, dets)
+                        with self._scan_cond:
+                            self._latest = scan
+                            self._scan_cond.notify_all()
+                except Exception as exc:  # report once, keep scanning
+                    if not warned:
+                        warned = True
+                        self.on_log(t("bot_error", err=exc))
+                    self._sleep(0.2)
+                self._sleep(SCAN_PAUSE)
+        finally:
+            grabber.close()
+
+    def _wait_scan(self, after_id):
+        """The newest scan if it is newer than `after_id`, else wait briefly for one."""
+        with self._scan_cond:
+            self._scan_cond.wait_for(
+                lambda: self._stop_evt.is_set() or (self._latest is not None and self._latest.id > after_id),
+                timeout=SCAN_WAIT)
+            latest = self._latest
+        if self._stop_evt.is_set() or latest is None or latest.id <= after_id:
+            return None
+        return latest
+
     # -- main loop -------------------------------------------------------
     def run(self):
         grabber = ScreenGrabber()
+        scanner = threading.Thread(target=self._scanner, daemon=True)
         try:
             if winutil.needs_admin_for(self.hwnd):
                 self.on_log(t("admin_hint"))
@@ -137,38 +195,40 @@ class BotEngine(threading.Thread):
             self.on_log(t("bot_started"))
             if not self._focus():
                 self.on_log(t("bot_no_focus"))
+            scanner.start()
+            last_id = 0
             while not self._stop_evt.is_set():
                 if not winutil.is_window_valid(self.hwnd):
                     self.on_log(t("bot_window_closed"))
                     break
                 self.on_state(State.SCANNING)
-                frame, rect, dets = self._scan(grabber)
-                if frame is not None:
-                    self._scale = rect_scale(rect)
-                candidates = self._candidates(dets, frame.shape) if frame is not None else []
+                scan = self._wait_scan(last_id)
+                if scan is None:
+                    continue
+                last_id, self._scale = scan.id, scan.scale
+                candidates = self._candidates(scan.dets, scan.shape)
                 if not candidates:
-                    if frame is not None and self._maybe_roam(grabber, frame, rect):
+                    if self._maybe_roam(grabber, scan.frame, scan.rect):
                         continue
                     self._log_idle()
-                    self._sleep(self.cfg.scan_interval)
                     continue
                 # A monster here means this is farmable ground: roaming limits are measured from this spot.
                 self.roamer.reset_home()
                 self._idle_since, self._roam_reason = None, None
-
-                for target in candidates[:MAX_TRIES]:
-                    if self._stop_evt.is_set():
-                        break
-                    try:
-                        outcome = self._engage(grabber, rect, target)
-                    finally:
-                        self.target_pos = None
-                    if outcome == "done":
-                        break  # fought (or gave up): look at the screen again
-                    # "next": it was a corpse / not a target: try the next monster from the same scan
+                try:
+                    # After any outcome the loop simply picks again from the newest scan, which the scanner
+                    # kept refreshing during the fight: no scan is waited for.
+                    self._engage(grabber, scan.rect, candidates[0])
+                finally:
+                    self.target_pos = None
         except Exception as exc:  # keep the GUI informed instead of dying silently
             self.on_log(t("bot_error", err=exc))
         finally:
+            self._stop_evt.set()
+            with self._scan_cond:
+                self._scan_cond.notify_all()
+            if scanner.is_alive():
+                scanner.join(2)
             grabber.close()
             self.on_state(State.IDLE)
             self.on_log(t("bot_stopped"))
@@ -211,65 +271,140 @@ class BotEngine(threading.Thread):
 
     # -- selecting and fighting ----------------------------------------------
     def _engage(self, grabber, rect, target):
-        """Click `target`, check it with the target window and fight it. Returns "next" or "done"."""
+        """Click `target` and fight it. Returns the fight's outcome ("stopped" gives up and rescans)."""
         if not self._focus():
             self.on_log(t("bot_retry_focus"))
             self._sleep(1.0)
-            return "done"
-        if self.panel_ok is False:  # this game's window is unreadable: the old way
-            if not self._confirm(grabber, rect, target):
-                return "done"
-            self._hunt_by_labels(grabber, rect, target)
-            return "done"
-
+            return "stopped"
         pos = target.click
         self.on_log(t("bot_target", name=target.name, pos=pos))
         self.target_pos = pos
-        self.on_state(State.CONFIRMING)
-
-        # Click, then read the target window. A click that misses the sprite selects nothing, so on a
-        # missing window try the same monster at other heights below its label before giving up.
-        panel, frame = None, None
-        for height in CLICK_HEIGHTS:
-            x, y = self._click_point(target, height)
+        self.on_state(State.ATTACKING)
+        outcome = "miss"
+        for _ in CLICK_HEIGHTS:  # a click that selects nothing is retried at the next height, on the same monster
+            x, y = self._click_point(target, CLICK_HEIGHTS[self._height])
             if not inputs.click_at(rect[0] + x, rect[1] + y):
                 self.on_log(t("bot_click_rejected"))
                 self._sleep(1.0)
-                return "done"
-            panel, frame = self._wait_panel(grabber)
-            if panel.present or self._stop_evt.is_set():
-                break
+                return "stopped"
+            outcome = self._fight(grabber, target)
+            if outcome != "miss":
+                return outcome
+            self._height = (self._height + 1) % len(CLICK_HEIGHTS)
+        self._mark(pos, 6.0)  # three heights, nothing selected: leave this one alone for a moment
+        return outcome
 
-        if not panel.present:
-            self._explain_missing_panel(panel, frame)
-            self._panel_misses += 1
-            if self.panel_ok is True:  # it worked before, so this monster could not be selected
-                self._mark(pos, 6.0)
-                return "next"
-            if self._panel_misses >= PANEL_FAILS_TO_GIVE_UP:
-                self.panel_ok = False
-                self.on_log(t("bot_panel_off"))
-            self._hunt_by_labels(grabber, rect, target, click=False)  # the clicks are done: finish this one the old way
-            return "done"
-        self._panel_misses = 0
-        self.panel_ok = True
+    def _killed(self, target, presses, pos):
+        self.kills += 1
+        self.on_log(t("bot_killed", name=target.name, n=self.kills, k=presses))
+        self._mark(pos, 45.0)  # the corpse keeps its label, right where the monster fell: never click it again
+        return "killed"
 
-        if panel.dead:
-            self._mark(pos, CORPSE_TTL)
-            self.on_log(t("bot_corpse", name=target.name))
-            return "next"
-        if not self._is_wanted(frame, panel):
-            self._mark(pos, 30.0)
-            return "next"
-        self._fight(grabber, target, panel)
-        return "done"
+    def _track(self, target, pos, scan_id):
+        """Follow the target's label through the scanner's newest result. Returns (pos, scan_id)."""
+        scan = self._latest
+        if scan is None or scan.id == scan_id:
+            return pos, scan_id
+        radius = 110 * scan.scale
+        same = [d for d in scan.dets if d.name == target.name and math.dist(d.click, pos) < radius]
+        if same:
+            pos = min(same, key=lambda d: math.dist(d.click, pos)).click
+            self.target_pos = pos
+        return pos, scan.id
 
-    def _click_point(self, target, height):
-        """Where to click `target`; `height` scales how far below its label (or how low on its body)."""
-        x0, y0, w, h = target.box
-        if target.source == "model":
-            return target.click[0], int(target.click[1] + (height - 1.0) * 0.25 * h)
-        return x0 + w // 2, int(y0 + h + self.cfg.click_offset * self._scale * height)
+    def _fight(self, grabber, target):
+        """Attack right away; verify while attacking. Returns "killed", "corpse", "miss", "wrong", "timeout" or "stopped"."""
+        t0 = time.time()
+        pos, scan_id = target.click, 0
+        keys = self.cfg.attack_keys
+        blind_for = self.cfg.blind_fight_seconds  # blind fights (no readable target window) are time-boxed
+        last_press, key_index, first_key = 0.0, 0, True
+        panel_seen = alive_seen = noted_missing = False
+        dead_since, gone = None, 0
+        best_fill, last_progress = 1.0, t0
+
+        while not self._stop_evt.is_set():
+            now = time.time()
+
+            # 1) attack: the first key leaves immediately, then the keys rotate
+            if keys and now - last_press >= self.cfg.attack_interval:
+                key = keys[key_index % len(keys)]
+                if self._press(key) and first_key:
+                    self.on_log(t("bot_keys_sent", keys=", ".join(keys)))
+                    first_key = False
+                key_index += 1
+                last_press = now
+
+            # 2) keep the label followed (free: the scanner already did the work)
+            pos, scan_id = self._track(target, pos, scan_id)
+
+            # 3) look at the target window if it can be read
+            panel, frame = None, None
+            if self.panel_ok is not False:
+                frame, _ = self._grab(grabber)
+                panel = read_panel(frame) if frame is not None else None
+
+            if panel is not None and panel.present:
+                panel_seen, gone = True, 0
+                self.panel_ok, self._panel_misses = True, 0
+                if panel.dead:
+                    dead_since = dead_since or now
+                    if alive_seen:                                  # it was alive and the bar emptied: killed
+                        return self._killed(target, key_index, pos)
+                    if now - dead_since >= CORPSE_CONFIRM:          # never alive since the click: a corpse
+                        self._mark(pos, CORPSE_TTL)
+                        self.on_log(t("bot_corpse", name=target.name))
+                        return "corpse"
+                else:
+                    dead_since = None
+                    if not alive_seen:
+                        alive_seen = True
+                        if not self._is_wanted(frame, panel):
+                            self._mark(pos, 30.0)
+                            return "wrong"
+                    if panel.fill < best_fill - 0.02:
+                        best_fill, last_progress = panel.fill, now
+            elif panel_seen:
+                gone += 1                                           # the window vanished: died and was deselected
+                if gone >= 2:
+                    return self._killed(target, key_index, pos) if alive_seen else "miss"
+            else:
+                # no target window seen in this fight
+                if self.panel_ok is True and now - t0 > SELECT_GRACE:
+                    return "miss"                                   # it works on this setup: the click selected nothing
+                if self.panel_ok is None and not noted_missing and now - t0 > PANEL_GRACE:
+                    noted_missing = True
+                    self._panel_misses += 1
+                    if frame is not None:
+                        self._explain_missing_panel(panel, frame)
+                    if self._panel_misses >= PANEL_FAILS_TO_GIVE_UP:
+                        self.panel_ok = False
+                        self.on_log(t("bot_panel_off"))
+                if now - t0 >= blind_for:                           # blind: a fixed, short fight, then on
+                    return self._killed(target, key_index, pos)
+
+            if now - t0 > self.cfg.attack_timeout:
+                self.on_log(t("bot_timeout"))
+                self._mark(pos, 30.0)
+                return "timeout"
+            if alive_seen and now - last_progress > STALL_SECONDS:
+                self.on_log(t("bot_stalled"))
+                self._mark(pos, 30.0)
+                return "timeout"
+            self._sleep(POLL)
+        return "stopped"
+
+    def _is_wanted(self, frame, panel):
+        """Reject a selection whose name is clearly not one of ours (a player, an NPC, another monster)."""
+        text, conf = detect.read_text(frame, panel.name_box)
+        names = [detect._norm(m) for m in self.cfg.monsters if m.strip()]
+        norm = detect._norm(text)
+        if not norm or conf < 0.85 or not names:
+            return True  # unsure: do not throw away a real target on a doubtful read
+        if max(fuzz.ratio(norm, n) for n in names) >= 55:
+            return True
+        self.on_log(t("bot_wrong_target", name=text))
+        return False
 
     def _explain_missing_panel(self, panel, frame):
         """Leave evidence when the target window was not seen: the measurements and the frame itself."""
@@ -286,158 +421,6 @@ class BotEngine(threading.Thread):
             path = "-"
         self.on_log(t("bot_panel_debug", dark=panel.dark, contrast=panel.contrast, text=panel.text, path=path))
 
-    def _wait_panel(self, grabber):
-        """Read the target window after a click, tolerating its short lag.
-
-        Right after a click the window may still show the PREVIOUS target (often a corpse),
-        so wait a moment, and believe "dead" only when two reads agree.
-        """
-        self._sleep(SELECT_LAG)
-        deadline = time.time() + PANEL_WAIT
-        panel, frame = None, None
-        while not self._stop_evt.is_set():
-            frame, _ = self._grab(grabber)
-            if frame is not None:
-                panel = read_panel(frame)
-                if panel.present:
-                    if not panel.dead:
-                        return panel, frame
-                    self._sleep(POLL * 2)  # a corpse? make sure it is not the old target still on screen
-                    frame, _ = self._grab(grabber)
-                    again = read_panel(frame) if frame is not None else panel
-                    return (again, frame) if again.present else (panel, frame)
-            if time.time() >= deadline:
-                break
-            self._sleep(POLL)
-        return panel or Panel(False, 0.0, (0, 0, 0, 0)), frame
-
-    def _is_wanted(self, frame, panel):
-        """Reject a selection whose name is clearly not one of ours (a player, an NPC, another monster)."""
-        text, conf = detect.read_text(frame, panel.name_box)
-        names = [detect._norm(m) for m in self.cfg.monsters if m.strip()]
-        norm = detect._norm(text)
-        if not norm or conf < 0.85 or not names:
-            return True  # unsure: do not throw away a real target on a doubtful read
-        if max(fuzz.ratio(norm, n) for n in names) >= 55:
-            return True
-        self.on_log(t("bot_wrong_target", name=text))
-        return False
-
-    def _fight(self, grabber, target, panel):
-        """Attack, watching only the target window until the monster dies or the fight stalls."""
-        self.on_state(State.ATTACKING)
-        started = time.time()
-        last_press = 0.0
-        last_overlay = started
-        last_progress, best_fill = started, panel.fill
-        key_index, first_key, gone = 0, True, 0
-        while not self._stop_evt.is_set():
-            now = time.time()
-            if self.cfg.attack_keys and now - last_press >= self.cfg.attack_interval:
-                key = self.cfg.attack_keys[key_index % len(self.cfg.attack_keys)]
-                if self._press(key) and first_key:
-                    self.on_log(t("bot_keys_sent", keys=", ".join(self.cfg.attack_keys)))
-                    first_key = False
-                key_index += 1
-                last_press = now
-
-            frame, _ = self._grab(grabber)
-            if frame is not None:
-                p = read_panel(frame)
-                if p.present and not p.dead:
-                    gone = 0
-                    if p.fill < best_fill - 0.02:
-                        best_fill, last_progress = p.fill, now
-                else:
-                    gone += 1  # empty bar, or the window vanished (died and was deselected)
-                    if p.dead or gone >= 2:
-                        self.kills += 1
-                        self.on_log(t("bot_killed", name=target.name, n=self.kills, k=key_index))
-                        return
-                # keep the on-screen markers / recorder fed without scanning every poll
-                if now - last_overlay > 1.0 and (self.cfg.overlay or (self.recorder and self.recorder.enabled)):
-                    last_overlay = now
-                    self._scan(grabber)
-
-            if now - started > self.cfg.attack_timeout:
-                self.on_log(t("bot_timeout"))
-                self._mark(self.target_pos or target.click, 30.0)
-                return
-            if now - last_progress > STALL_SECONDS:
-                self.on_log(t("bot_stalled"))
-                self._mark(self.target_pos or target.click, 30.0)
-                return
-            self._sleep(POLL)
-
-    # -- the old, label-based way (used when the target window cannot be read) -------
-    def _confirm(self, grabber, rect, target):
-        """The same label must show up again before we click (filters one-frame OCR noise)."""
-        self.on_state(State.CONFIRMING)
-        needed = max(0, self.cfg.confirm_frames - 1)
-        attempts = needed + 1 if needed else 0
-        radius = 90 * rect_scale(rect)
-        hits = 0
-        for _ in range(attempts):
-            self._sleep(self.cfg.scan_interval)
-            if self._stop_evt.is_set():
-                return False
-            _, _, dets = self._scan(grabber)
-            if any(d.name == target.name and math.dist(d.click, target.click) < radius for d in dets):
-                hits += 1
-                if hits >= needed:
-                    return True
-        return needed == 0
-
-    def _hunt_by_labels(self, grabber, rect, target, click=True):
-        pos = target.click
-        if click:
-            if not self._focus():
-                self.on_log(t("bot_retry_focus"))
-                self._sleep(1.0)
-                return
-            self.on_log(t("bot_target", name=target.name, pos=pos))
-            if not inputs.click_at(rect[0] + pos[0], rect[1] + pos[1]):
-                self.on_log(t("bot_click_rejected"))
-                self._sleep(1.0)
-                return
-
-        self.on_state(State.ATTACKING)
-        self.target_pos = pos
-        radius = 110 * rect_scale(rect)
-        started = time.time()
-        last_press = 0.0  # press the first attack key right away instead of waiting one interval
-        missing_since = None
-        key_index = 0
-        first_key = True
-        while not self._stop_evt.is_set():
-            now = time.time()
-            if now - last_press >= self.cfg.attack_interval and self.cfg.attack_keys:
-                key = self.cfg.attack_keys[key_index % len(self.cfg.attack_keys)]
-                if self._press(key) and first_key:
-                    self.on_log(t("bot_keys_sent", keys=", ".join(self.cfg.attack_keys)))
-                    first_key = False
-                key_index += 1
-                last_press = now
-            _, _, dets = self._scan(grabber)
-            same = [d for d in dets if d.name == target.name and math.dist(d.click, pos) < radius]
-            if same:
-                missing_since = None
-                pos = min(same, key=lambda d: math.dist(d.click, pos)).click
-                self.target_pos = pos
-            else:
-                # An OCR miss or a monster running past the search radius must not count as a death:
-                # the label has to stay gone for a while.
-                missing_since = missing_since or now
-                if now - missing_since >= LABEL_GONE_SECONDS:
-                    self.kills += 1
-                    self.on_log(t("bot_killed", name=target.name, n=self.kills, k=key_index))
-                    return
-            if now - started > self.cfg.attack_timeout:
-                self.on_log(t("bot_timeout"))
-                self._mark(pos, 30.0)
-                return
-            self._sleep(self.cfg.scan_interval)
 
 def rect_scale(rect):
     return (rect[3] - rect[1]) / detect.REF_HEIGHT
-

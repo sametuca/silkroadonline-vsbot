@@ -76,12 +76,14 @@ depoda açıktır; exe'yi isteyen kendisi `.\build.ps1` ile derleyebilir.
 1. Ekrandaki beyaz, ince, kenarlıklı yazı blokları bulunur (HUD, minimap, sohbet gibi sabit arayüz hariç).
 2. Her blok [RapidOCR](https://github.com/RapidAI/RapidOCR) ile okunur (ONNX, ayrı kurulum gerekmez).
 3. Okunan metin hedefle bulanık eşleştirilir (`Mangyang` ≈ `Mangyan9`).
-4. En yakın eşleşmenin etiketinin biraz altına tıklanır, sonra oyunun **hedef penceresi** (üst orta) okunur: can çubuğu
-   boşsa canavar zaten ölüdür, yeri yok sayılır ve **aynı taramadaki sıradaki canavara hemen tıklanır**. Ölü canavarlar
-   isim etiketini korur, bu yüzden etiket tek başına ölüyü canlıdan ayıramaz.
-5. Canlı hedefe saldırılırken yalnızca bu pencere izlenir (milisaniyeler, tüm ekranda OCR yok). Çubuk boşalınca ya da
-   pencere kaybolunca canavar ölmüş sayılır ve bot beklemeden devam eder. Pencere oyununda ya da temanda okunamazsa bot
-   isim etiketini izleme yöntemine döner.
+4. En yakın eşleşmenin etiketinin biraz altına tıklanır ve **ilk saldırı tuşuna hemen basılır**: hiçbir şey doğrulama için
+   beklemez. Saldırırken oyunun **hedef penceresi** (üst orta) milisaniyede okunur: hiç can göstermemiş boş bir çubuk
+   canavarın zaten ölü olduğunu (ölüler isim etiketini korur), boşalan çubuk ise öldürdüğünü gösterir. İki durumda da bot
+   yeniden taramadan, **aynı taramadaki sıradaki canavara hemen geçer**. Hiçbir şey seçmeyen bir tıklama aynı canavara
+   biraz daha aşağıdan hemen yeniden denenir. Ayrı bir iş parçacığı ekranı saniyede yaklaşık on kez tarar ve dövüşülen
+   canavarın etiketini de izler; böylece düştüğü yerde yatan cesedine bir daha tıklanmaz.
+5. Hedef penceresi görünmüyorsa (örneğin oyun arayüzü gizliyse) bot "kör" döver: kısa, sabit bir süre (varsayılan 1,2 sn)
+   saldırır, sonra devam eder ve o etiketi bir süre yok sayar. En hızlı ve doğru av için oyun arayüzünü açık tut.
 
 Durumlar: `Aranıyor → Doğrulanıyor → Saldırıyor`, ekranda hiçbir şey yoksa ayrıca `Gezinme`.
 

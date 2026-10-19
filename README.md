@@ -78,12 +78,15 @@ you can build the exe yourself with `.\build.ps1`.
 1. White, thin, outlined text blobs are found on screen (fixed UI such as HUD, minimap and chat is excluded).
 2. Each blob is read with [RapidOCR](https://github.com/RapidAI/RapidOCR) (ONNX, no separate install).
 3. The text is fuzzy-matched against your target (`Mangyang` ≈ `Mangyan9`).
-4. The nearest match is clicked just below its label, then the game's **target window** (top centre) is read: an empty
-   HP bar means the monster was already dead, so its spot is ignored and the **next monster from the same scan is
-   clicked at once**. Dead monsters keep their name label, so the label alone can never tell dead from alive.
-5. A live target is attacked while only that window is watched (milliseconds, no full-screen OCR). When the bar empties
-   or the window disappears the monster counts as dead and the bot moves on immediately. If the window cannot be read on
-   your game or skin, the bot falls back to following the name label.
+4. The nearest match is clicked just below its label and the **first attack key is pressed right away**: nothing waits
+   for a confirmation. While attacking, the game's **target window** (top centre) is read in milliseconds: an empty HP bar
+   on a monster that never showed health means it was already dead (dead monsters keep their name label), and a bar
+   that empties means a kill. Either way the bot goes **straight to the next monster found by the same scan**, without
+   waiting for a scan: a separate thread scans the screen about ten times a second and also follows the fighting monster's
+   label, so its corpse (which lies where it fell) is never clicked. A click that selects nothing is retried at once, a little lower on the same monster.
+5. If the target window cannot be seen (for example the game interface is hidden), the bot fights "blind": it attacks for a
+   short fixed time (1.2 s by default), then moves on and ignores that label for a while. Keep the game interface visible
+   for the fastest and most accurate hunting.
 
 States: `Searching → Confirming → Attacking`, plus `Roaming` when nothing is on screen.
 

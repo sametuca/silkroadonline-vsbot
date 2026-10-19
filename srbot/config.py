@@ -30,7 +30,7 @@ class Config:
     scan_interval: float = 0.12
     click_offset: int = 18          # px below the name label, at 632px window height
     match_threshold: int = 78       # fuzzy name match, 0-100
-    confirm_frames: int = 2
+    blind_fight_seconds: float = 1.2  # without a readable target window: attack this long, then move on
     overlay: bool = True            # draw boxes over the monsters on the game window
     roam: bool = True               # walk around when no target monster is on screen
     roam_after: float = 2.5         # seconds without a target before walking

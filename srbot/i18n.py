@@ -41,6 +41,8 @@ S = {
     "keys_hint": ("Skill çubuğundaki tuşları gir. Birden fazlası sırayla basılır (örn. 1,2,3,4).",
                   "Enter the keys from your skill bar. Several keys are pressed in turn (e.g. 1,2,3,4)."),
     "keys_attack": ("Saldırı tuşları", "Attack keys"),
+    "speed_text": ("Tuş aralığı: {s} sn (küçük = daha hızlı; oyundaki bekleme süresinden kısa olmasın)",
+                   "Key interval: {s} s (smaller = faster; not below the game's skill cooldown)"),
     "roam_switch": ("Canavar yoksa gezinerek ara", "Search by roaming when no monster is around"),
     "radius_text": ("Kasılma alanı: başladığın yerden en fazla {n} adım uzağa gider (canavarı gördükçe merkez kayar)",
                     "Farming area: goes at most {n} steps from where you started (the centre moves as monsters are seen)"),
@@ -130,7 +132,6 @@ S = {
     # -- bot (engine) ------------------------------------------------------------
     "state_idle": ("Beklemede", "Idle"),
     "state_scanning": ("Canavar aranıyor", "Searching for monsters"),
-    "state_confirming": ("Hedef doğrulanıyor", "Confirming target"),
     "state_attacking": ("Saldırıyor", "Attacking"),
     "state_roaming": ("Canavar aranıyor (geziyor)", "Searching (roaming)"),
     "admin_hint": ("Oyun yönetici olarak çalışıyor, bu program değil: Windows tuş ve tıklamaları sessizce engelliyor. "
@@ -153,7 +154,7 @@ S = {
     "bot_keys_sent": ("Saldırı tuşları sırayla gönderiliyor: {keys}", "Sending attack keys in turn: {keys}"),
     "bot_killed": ("{name} öldü (toplam {n}, {k} tuşa basıldı).", "{name} died (total {n}, {k} key presses)."),
     "bot_timeout": ("Hedef zaman aşımına uğradı, atlanıyor.", "Target timed out, skipping."),
-    "bot_corpse": ("{name} zaten ölüydü, sıradakine geçiliyor.", "{name} was already dead, moving to the next one."),
+    "bot_corpse": ("{name} ölü, sıradakine geçiliyor.", "{name} is dead, moving to the next one."),
     "bot_panel_debug": ("Hedef penceresi görünmedi (şerit {dark:.2f}, kontrast {contrast:.0f}, yazı {text}). Kare kaydedildi: {path}",
                         "Target window not seen (strip {dark:.2f}, contrast {contrast:.0f}, text {text}). Frame saved: {path}"),
     "bot_panel_off": ("Hedef penceresi okunamadı, etiket yöntemine dönüldü.",

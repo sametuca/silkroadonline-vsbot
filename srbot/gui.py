@@ -232,6 +232,12 @@ class App(ctk.CTk):
     def _build_page_keys(self, page):
         self._heading(page, t("keys_title"), t("keys_hint"))
         self.attack_entry = self._labeled_entry(page, t("keys_attack"), ",".join(self.cfg.attack_keys))
+        self.speed_label = ctk.CTkLabel(page, text="", anchor="w", justify="left", text_color=theme.MUTED, wraplength=480)
+        self.speed_label.pack(fill="x", pady=(14, 0))
+        self.speed_slider = ctk.CTkSlider(page, from_=0.2, to=1.2, number_of_steps=10, command=self._on_speed)
+        self.speed_slider.set(self.cfg.attack_interval)
+        self.speed_slider.pack(fill="x")
+        self._on_speed(self.cfg.attack_interval)
         self.roam_switch = ctk.CTkSwitch(page, text=t("roam_switch"))
         if self.cfg.roam:
             self.roam_switch.select()
@@ -242,6 +248,9 @@ class App(ctk.CTk):
         self.radius_slider.set(self.cfg.roam_radius)
         self.radius_slider.pack(fill="x")
         self._on_radius(self.cfg.roam_radius)
+
+    def _on_speed(self, value):
+        self.speed_label.configure(text=t("speed_text", s=f"{value:.1f}"))
 
     def _on_radius(self, value):
         self.radius_label.configure(text=t("radius_text", n=int(round(value))))
@@ -528,6 +537,7 @@ class App(ctk.CTk):
         self.cfg.attack_keys = [k.strip() for k in self.attack_entry.get().split(",") if k.strip()]
         self.cfg.roam = bool(self.roam_switch.get())
         self.cfg.roam_radius = float(round(self.radius_slider.get()))
+        self.cfg.attack_interval = round(float(self.speed_slider.get()), 1)
         self.cfg.overlay = bool(self.overlay_switch.get()) if hasattr(self, "overlay_switch") else self.cfg.overlay
         self.cfg.save()
 
