@@ -50,3 +50,4 @@ dataset/
 models/
 *.pt
 *.spec
+debug/

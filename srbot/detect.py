@@ -86,6 +86,11 @@ def _read(bgr, box):
     return result[0][0].strip(), float(result[0][1])
 
 
+def read_text(bgr, box):
+    """OCR one box of a frame: (text, confidence)."""
+    return _read(bgr, box)
+
+
 def _norm(text):
     return "".join(ch for ch in text.lower() if ch.isalnum() or ch == " ").strip()
 

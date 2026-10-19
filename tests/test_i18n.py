@@ -45,7 +45,7 @@ def test_state_names_are_translated():
 
 def test_switching_language_changes_the_text():
     i18n.set_language("en")
-    assert t("start") == "START" and t("bot_killed", name="Wolf", n=3) == "Wolf died (total 3)."
+    assert t("start") == "START" and t("bot_killed", name="Wolf", n=3, k=5) == "Wolf died (total 3, 5 key presses)."
     i18n.set_language("tr")
     assert t("start") == "BAŞLAT"
     i18n.set_language("xx")  # unknown codes fall back to Turkish
@@ -54,4 +54,5 @@ def test_switching_language_changes_the_text():
 
 def test_placeholder_named_key_does_not_clash():
     i18n.set_language("en")
-    assert t("bot_key_sent", key="2") == "Attack key sent: 2"
+    assert t("bot_keys_sent", keys="1, 2") == "Sending attack keys in turn: 1, 2"
+    assert t("bot_key_failed", key="2") == "Could not send key '2' (unsupported key name?)."

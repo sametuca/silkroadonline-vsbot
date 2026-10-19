@@ -30,7 +30,7 @@ sends the same keyboard and mouse input a player would.
       several monsters with commas). Not sure about the spelling? **Read the name from the screen** shows what the
       bot sees and lets you tick it.
    3. **Keys**: your attack keys (default `1,2,3,4`, pressed in turn), the roaming switch and the farming-area size.
-4. Press **START** (or **F9**).
+4. Press **START** (or **F5**).
 
 Normal, champion and giant monsters share the same name, so one name covers all of them. Your own character name is
 read from the window title (`[YourName] ...`) and ignored automatically. **Change settings** on the dashboard reopens the steps.
@@ -78,8 +78,12 @@ you can build the exe yourself with `.\build.ps1`.
 1. White, thin, outlined text blobs are found on screen (fixed UI such as HUD, minimap and chat is excluded).
 2. Each blob is read with [RapidOCR](https://github.com/RapidAI/RapidOCR) (ONNX, no separate install).
 3. The text is fuzzy-matched against your target (`Mangyang` ≈ `Mangyan9`).
-4. The nearest match is clicked just below its label and the attack keys are pressed.
-5. When the label disappears for a few scans the monster counts as dead and the loop restarts.
+4. The nearest match is clicked just below its label, then the game's **target window** (top centre) is read: an empty
+   HP bar means the monster was already dead, so its spot is ignored and the **next monster from the same scan is
+   clicked at once**. Dead monsters keep their name label, so the label alone can never tell dead from alive.
+5. A live target is attacked while only that window is watched (milliseconds, no full-screen OCR). When the bar empties
+   or the window disappears the monster counts as dead and the bot moves on immediately. If the window cannot be read on
+   your game or skin, the bot falls back to following the name label.
 
 States: `Searching → Confirming → Attacking`, plus `Roaming` when nothing is on screen.
 

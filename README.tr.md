@@ -30,7 +30,7 @@ bir oyuncunun gönderebileceği klavye ve fare girdisini gönderir.
       fazla canavar için virgülle ayır). Yazımdan emin değilsen **Adı ekrandan oku** botun gördüğünü gösterir,
       işaretleyip seçersin.
    3. **Tuşlar**: saldırı tuşları (varsayılan `1,2,3,4`, sırayla basılır), gezinme anahtarı ve kasılma alanı büyüklüğü.
-4. **BAŞLAT**'a bas (veya **F9**).
+4. **BAŞLAT**'a bas (veya **F5**).
 
 Normal, şampiyon ve dev canavarlar aynı adı taşıdığı için tek ad hepsini kapsar. Kendi karakter adın pencere
 başlığından (`[Adın] ...`) okunup otomatik elenir. Panodaki **Ayarları değiştir** adımları yeniden açar.
@@ -76,8 +76,12 @@ depoda açıktır; exe'yi isteyen kendisi `.\build.ps1` ile derleyebilir.
 1. Ekrandaki beyaz, ince, kenarlıklı yazı blokları bulunur (HUD, minimap, sohbet gibi sabit arayüz hariç).
 2. Her blok [RapidOCR](https://github.com/RapidAI/RapidOCR) ile okunur (ONNX, ayrı kurulum gerekmez).
 3. Okunan metin hedefle bulanık eşleştirilir (`Mangyang` ≈ `Mangyan9`).
-4. En yakın eşleşmenin etiketinin biraz altına tıklanır ve saldırı tuşlarına basılır.
-5. Etiket birkaç taramada kaybolunca canavar ölmüş sayılır ve döngü başa döner.
+4. En yakın eşleşmenin etiketinin biraz altına tıklanır, sonra oyunun **hedef penceresi** (üst orta) okunur: can çubuğu
+   boşsa canavar zaten ölüdür, yeri yok sayılır ve **aynı taramadaki sıradaki canavara hemen tıklanır**. Ölü canavarlar
+   isim etiketini korur, bu yüzden etiket tek başına ölüyü canlıdan ayıramaz.
+5. Canlı hedefe saldırılırken yalnızca bu pencere izlenir (milisaniyeler, tüm ekranda OCR yok). Çubuk boşalınca ya da
+   pencere kaybolunca canavar ölmüş sayılır ve bot beklemeden devam eder. Pencere oyununda ya da temanda okunamazsa bot
+   isim etiketini izleme yöntemine döner.
 
 Durumlar: `Aranıyor → Doğrulanıyor → Saldırıyor`, ekranda hiçbir şey yoksa ayrıca `Gezinme`.
 

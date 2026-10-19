@@ -29,7 +29,7 @@ from .recorder import Recorder, RecorderThread
 
 APP_TITLE = "Silkroad Vision Bot"
 GAME_HINTS = ("silkroad", "destiny", "online", "sro")
-HOTKEY = "f9"
+HOTKEY = "f5"
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 EPOCH_DONE = re.compile(r"(\d+/\d+)\s.*\s100%")
 GRAY, RED = theme.GRAY, theme.RED

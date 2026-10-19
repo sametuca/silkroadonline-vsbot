@@ -26,8 +26,8 @@ class Config:
     monsters: list = field(default_factory=list)
     player_name: str = ""
     attack_keys: list = field(default_factory=lambda: ["1", "2", "3", "4"])
-    attack_interval: float = 0.9
-    scan_interval: float = 0.25
+    attack_interval: float = 0.6
+    scan_interval: float = 0.12
     click_offset: int = 18          # px below the name label, at 632px window height
     match_threshold: int = 78       # fuzzy name match, 0-100
     confirm_frames: int = 2
