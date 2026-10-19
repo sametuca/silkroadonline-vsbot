@@ -182,24 +182,29 @@ def is_admin():
         return False
 
 
-def relaunch_as_admin():
-    """Re-launch the current process elevated (UAC prompt) and exit this one.
+def relaunch_as_admin(extra_args=()):
+    """Re-launch the current program elevated (UAC prompt). True only if Windows started it.
 
-    Needed when the game itself runs elevated (common with anti-cheat
-    launchers) - Windows' UIPI silently blocks a non-elevated process's
-    SendInput/SetForegroundWindow calls against a higher-integrity window,
-    with no error, which is exactly the "nothing happens" symptom this
-    fixes.
+    Needed because the game usually runs elevated: Windows (UIPI) silently blocks a
+    non-elevated process's SendInput/SetForegroundWindow calls against it, with no
+    error - exactly the "nothing happens" symptom. Returns False when the user
+    declines the UAC prompt.
     """
     try:
+        args = [a for a in sys.argv[1:] if a != "--elevated"] + list(extra_args)
         if getattr(sys, "frozen", False):
-            exe, params = sys.executable, ""
+            exe, params = sys.executable, subprocess_list2cmdline(args)
         else:
-            exe, params = sys.executable, f'"{os.path.abspath(sys.argv[0])}"'
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
-        return True
+            exe, params = sys.executable, subprocess_list2cmdline([os.path.abspath(sys.argv[0])] + args)
+        result = ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
+        return result > 32  # <= 32 is an error code (e.g. 5 = the user declined)
     except Exception:
         return False
+
+
+def subprocess_list2cmdline(args):
+    import subprocess
+    return subprocess.list2cmdline(args)
 
 
 def grab_screen(bbox):
@@ -251,3 +256,32 @@ def character_name_from_title(title):
     """Titles look like '[Murkrow] Destiny Online' - the bracket holds the character name."""
     start, end = title.find("["), title.find("]")
     return title[start + 1:end].strip() if 0 <= start < end else ""
+
+
+def window_rect(child_hwnd):
+    """Outer rectangle (left, top, right, bottom) of the top-level window that owns a Tk widget handle."""
+    hwnd = user32.GetAncestor(child_hwnd, 2)  # GA_ROOT: Tk's winfo_id() is an inner child window
+    rect = wintypes.RECT()
+    if hwnd and user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return rect.left, rect.top, rect.right, rect.bottom
+    return None
+
+
+def make_click_through(child_hwnd):
+    """Turn a Tk window into a see-through overlay: mouse input passes through, it never takes focus."""
+    GWL_EXSTYLE = -20
+    WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE = 0x80000, 0x20, 0x80, 0x08000000
+    get = user32.GetWindowLongPtrW
+    set_ = user32.SetWindowLongPtrW
+    get.restype = ctypes.c_ssize_t
+    get.argtypes = [wintypes.HWND, ctypes.c_int]
+    set_.restype = ctypes.c_ssize_t
+    set_.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+    hwnd = user32.GetAncestor(child_hwnd, 2)  # GA_ROOT
+    style = get(hwnd, GWL_EXSTYLE)
+    set_(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+    return hwnd
+
+
+def is_minimized(hwnd):
+    return bool(user32.IsIconic(hwnd))

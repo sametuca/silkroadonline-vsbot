@@ -5,6 +5,7 @@ onnxruntime, OpenCV, GUI toolkit) by detecting a drawn name label. A
 windowed exe has no console, so the verdict goes to a file and the exit code.
 """
 
+import os
 import traceback
 
 
@@ -17,6 +18,11 @@ def run(out_path):
 
         from .config import Config
         from .detect import detect
+        from .paths import resource_path
+
+        for asset in ("logo.png", "app_icon.png", "icon.ico"):  # bundled icons the GUI loads
+            if not os.path.isfile(resource_path("assets", asset)):
+                raise FileNotFoundError(f"missing bundled asset: {asset}")
 
         img = np.full((632, 802, 3), (40, 110, 50), np.uint8)
         cv2.putText(img, "Mangyang", (300, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)

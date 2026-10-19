@@ -1,4 +1,4 @@
-"""Hunt loop: SCANNING -> CONFIRMING -> ATTACKING -> LOOTING, on a worker thread."""
+"""Hunt loop: SCANNING -> CONFIRMING -> ATTACKING (-> ROAMING when idle), on a worker thread."""
 
 import math
 import threading
@@ -6,19 +6,15 @@ import time
 from enum import Enum
 
 from . import detect, inputs, radar, winutil
+from .i18n import t
 from .capture import ScreenGrabber
-from .roam import Roamer
-
-ADMIN_HINT = ("Oyun yönetici olarak çalışıyor, bu program değil: Windows tuş ve tıklamaları sessizce engelliyor. "
-              "Programı yönetici olarak yeniden başlat.")
-
+from .roam import PLAYER, Roamer
 
 class State(str, Enum):
     IDLE = "Beklemede"
     SCANNING = "Canavar aranıyor"
     CONFIRMING = "Hedef doğrulanıyor"
     ATTACKING = "Saldırıyor"
-    LOOTING = "Loot toplanıyor"
     ROAMING = "Canavar aranıyor (geziyor)"
 
 
@@ -26,12 +22,14 @@ class BotEngine(threading.Thread):
     """Callbacks (all called from the worker thread):
     on_log(str), on_state(State), on_frame(bgr_frame, detections)."""
 
-    def __init__(self, cfg, hwnd, on_log=None, on_state=None, on_frame=None, recorder=None):
+    def __init__(self, cfg, hwnd, on_log=None, on_state=None, on_frame=None, recorder=None, on_roam=None):
         super().__init__(daemon=True)
         self.cfg, self.hwnd = cfg, hwnd
         self.on_log = on_log or (lambda m: None)
         self.on_state = on_state or (lambda s: None)
         self.on_frame = on_frame or (lambda f, d: None)
+        self.on_roam = on_roam or (lambda point: None)
+        self.target_pos = None  # click position of the monster being attacked (read by the overlay)
         self._stop_evt = threading.Event()
         self.recorder = recorder
         self.kills = 0
@@ -71,14 +69,14 @@ class BotEngine(threading.Thread):
 
     def _nearest(self, dets, shape, avoid):
         h, w = shape[:2]
-        px, py = w * 0.5, h * 0.55  # the player stands near the screen centre
+        px, py = w * PLAYER[0], h * PLAYER[1]  # where the character stands on screen
         ok = [d for d in dets if not any(math.dist(d.click, a) < 40 for a in avoid)]
         return min(ok, key=lambda d: math.dist(d.click, (px, py)), default=None)
 
     def _press(self, key):
         self._focus()
         if not inputs.press_key(key):
-            self.on_log(f"'{key}' tuşu gönderilemedi (desteklenmeyen tuş adı olabilir).")
+            self.on_log(t("bot_key_failed", key=key))
             return False
         return True
 
@@ -88,14 +86,14 @@ class BotEngine(threading.Thread):
         avoid = []  # recently failed click spots
         try:
             if winutil.needs_admin_for(self.hwnd):
-                self.on_log(ADMIN_HINT)
+                self.on_log(t("admin_hint"))
                 return
-            self.on_log("Bot başladı.")
+            self.on_log(t("bot_started"))
             if not self._focus():
-                self.on_log("Oyun penceresi öne alınamadı; üstü kapalıysa tespit bozulur.")
+                self.on_log(t("bot_no_focus"))
             while not self._stop_evt.is_set():
                 if not winutil.is_window_valid(self.hwnd):
-                    self.on_log("Oyun penceresi kapandı, bot durdu.")
+                    self.on_log(t("bot_window_closed"))
                     break
                 self.on_state(State.SCANNING)
                 frame, rect, dets = self._scan(grabber)
@@ -113,13 +111,16 @@ class BotEngine(threading.Thread):
 
                 if not self._confirm(grabber, rect, target):
                     continue
-                self._hunt(grabber, rect, target, avoid)
+                try:
+                    self._hunt(grabber, rect, target, avoid)
+                finally:
+                    self.target_pos = None
         except Exception as exc:  # keep the GUI informed instead of dying silently
-            self.on_log(f"Hata: {exc}")
+            self.on_log(t("bot_error", err=exc))
         finally:
             grabber.close()
             self.on_state(State.IDLE)
-            self.on_log("Bot durdu.")
+            self.on_log(t("bot_stopped"))
 
     def _maybe_roam(self, grabber, frame, rect):
         """Nothing to hit for a while: walk toward the radar's monster dots (within the leash) and look again."""
@@ -133,18 +134,18 @@ class BotEngine(threading.Thread):
         self.on_state(State.ROAMING)
         before = radar.read_dots(frame)
         move = self.roamer.next_move(frame.shape, before, self.cfg.roam_step,
-                                     self.cfg.roam_radius * self.cfg.roam_step, self.cfg.excludes)
+                                     self.cfg.roam_radius * self.cfg.roam_step)
         if move is None:
             return False
         if move.reason != self._roam_reason:
             self._roam_reason = move.reason
-            self.on_log({"radar": f"Radarda {len(before)} canavar noktası var, ona doğru yürünüyor.",
-                         "home": "Radar boş, kasılma alanına geri dönülüyor.",
-                         "wander": "Radar boş, alanın içinde kısa adımlarla aranıyor."}[move.reason])
+            self.on_log(t({"radar": "roam_radar", "home": "roam_home", "wander": "roam_wander"}[move.reason],
+                          n=len(before)))
         if not inputs.click_at(rect[0] + move.point[0], rect[1] + move.point[1]):
-            self.on_log("Gezinme tıklaması reddedildi (yönetici yetkisi gerekebilir).")
+            self.on_log(t("roam_rejected"))
             self._idle_since = now
             return False
+        self.on_roam(move.point)
         self._sleep(self.cfg.roam_wait)
         after_frame, _ = self._grab(grabber)
         if after_frame is not None:
@@ -155,7 +156,7 @@ class BotEngine(threading.Thread):
         now = time.time()
         if now - self._last_idle_log > 10:
             self._last_idle_log = now
-            self.on_log("Yakında hedef canavar görünmüyor, aranıyor...")
+            self.on_log(t("bot_idle"))
 
     def _confirm(self, grabber, rect, target):
         """The same label must show up again before we click (filters one-frame OCR noise).
@@ -181,17 +182,18 @@ class BotEngine(threading.Thread):
 
     def _hunt(self, grabber, rect, target, avoid):
         if not self._focus():
-            self.on_log("Oyun penceresi öne alınamadı, tekrar deneniyor.")
+            self.on_log(t("bot_retry_focus"))
             self._sleep(1.0)
             return
         pos = target.click
-        self.on_log(f"Hedef: {target.name} {pos}")
+        self.on_log(t("bot_target", name=target.name, pos=pos))
         if not inputs.click_at(rect[0] + pos[0], rect[1] + pos[1]):
-            self.on_log("Tıklama Windows tarafından reddedildi (yönetici yetkisi gerekebilir).")
+            self.on_log(t("bot_click_rejected"))
             self._sleep(1.0)
             return
 
         self.on_state(State.ATTACKING)
+        self.target_pos = pos
         radius = 110 * rect_scale(rect)
         started = last_press = time.time()
         misses = 0
@@ -202,7 +204,7 @@ class BotEngine(threading.Thread):
             if now - last_press >= self.cfg.attack_interval and self.cfg.attack_keys:
                 key = self.cfg.attack_keys[key_index % len(self.cfg.attack_keys)]
                 if self._press(key) and first_key:
-                    self.on_log(f"Saldırı tuşu gönderildi: {key}")
+                    self.on_log(t("bot_key_sent", key=key))
                     first_key = False
                 key_index += 1
                 last_press = now
@@ -211,29 +213,18 @@ class BotEngine(threading.Thread):
             if same:
                 misses = 0
                 pos = min(same, key=lambda d: math.dist(d.click, pos)).click
+                self.target_pos = pos
             else:
                 misses += 1
                 if misses >= 3:
                     self.kills += 1
-                    self.on_log(f"{target.name} öldü (toplam {self.kills}).")
-                    self._loot()
+                    self.on_log(t("bot_killed", name=target.name, n=self.kills))
                     return
             if now - started > self.cfg.attack_timeout:
-                self.on_log("Hedef zaman aşımına uğradı, atlanıyor.")
+                self.on_log(t("bot_timeout"))
                 avoid.append(pos)
                 return
             self._sleep(self.cfg.scan_interval)
-
-    def _loot(self):
-        if not self.cfg.loot_key:
-            return
-        self.on_state(State.LOOTING)
-        self._sleep(self.cfg.loot_delay)
-        for _ in range(self.cfg.loot_presses):
-            if self._stop_evt.is_set():
-                return
-            self._press(self.cfg.loot_key)
-            self._sleep(0.3)
 
 
 def rect_scale(rect):

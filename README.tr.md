@@ -1,11 +1,13 @@
 <div align="center">
 
+<img src="assets/app_icon.png" alt="Silkroad Vision Bot" width="110">
+
 # Silkroad Vision Bot
 
 ### [🇬🇧 English](README.md) &nbsp;|&nbsp; [🇹🇷 Türkçe](README.tr.md)
 
 Silkroad tarzı MMO'lar için ekran görüntüsü tabanlı otomatik av botu. Canavarları **isim etiketinden** tanır,
-hedef seçer, saldırır, loot toplar ve yenisini bulmak için gezinir.
+hedef seçer, saldırır ve yenisini bulmak için gezinir.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
@@ -21,18 +23,25 @@ bir oyuncunun gönderebileceği klavye ve fare girdisini gönderir.
 1. [**Releases**](../../releases/latest) sayfasından `SilkroadVisionBot.exe` dosyasını indirip çift tıkla (Python gerekmez).
    Ya da kaynaktan: `pip install -r requirements.txt`, ardından `python main.py`.
 2. Oyunu **pencere modunda** aç ve penceresinin üstünü açık tut.
-3. Açılışta üç adımı izle (bilgiler son çalıştırmadan hazır gelir):
+3. İlk açılışta **dilini** seç (Türkçe veya English; istediğin zaman değiştirebilirsin). Sonra üç adımı izle
+   (bilgiler son çalıştırmadan hazır gelir):
    1. **Oyun**: oyun penceresini seç.
    2. **Canavar**: canavarın adını **oyunda üstünde yazdığı gibi birebir** yaz (büyük/küçük harf fark etmez; birden
       fazla canavar için virgülle ayır). Yazımdan emin değilsen **Adı ekrandan oku** botun gördüğünü gösterir,
       işaretleyip seçersin.
-   3. **Tuşlar**: saldırı tuşları (ör. `1,2,3`), istersen loot tuşu ve gezinme anahtarı.
+   3. **Tuşlar**: saldırı tuşları (varsayılan `1,2,3,4`, sırayla basılır), gezinme anahtarı ve kasılma alanı büyüklüğü.
 4. **BAŞLAT**'a bas (veya **F9**).
 
 Normal, şampiyon ve dev canavarlar aynı adı taşıdığı için tek ad hepsini kapsar. Kendi karakter adın pencere
 başlığından (`[Adın] ...`) okunup otomatik elenir. Panodaki **Ayarları değiştir** adımları yeniden açar.
 
 **Test taraması**, hiçbir şeye saldırmadan botun ekranda kaç hedef canavar gördüğünü günlüğe yazar.
+
+### Canavar işaretleri
+
+Bot çalışırken bulduğu canavarların üstüne oyun penceresinin üzerinde **kutu çizer** (saldırdığı kırmızı ve etiketli,
+yürüdüğü nokta mavi daire). Katman saydamdır ve tıklamaları geçirir, odağı çalmaz, yalnızca oyun öndeyken görünür
+ve eğitim verisi toplarken kendini kapatır. **Canavarları ekranda işaretle** anahtarıyla kapatabilirsin.
 
 ### Gezinme
 
@@ -50,11 +59,11 @@ Ekranda birkaç saniye hedef canavar olmazsa bot rastgele yürümek yerine **rad
 > Radarın oyun penceresinin sağ üst köşesinde, varsayılan boyutunda olması beklenir. Yürüme konumu tıklamalardan
 > hesaplanır, bu yüzden yaklaşıktır, birebir değildir.
 
-### Yönetici yetkisi (önemli)
+### Yönetici yetkisi (zorunlu)
 
-Oyun **yönetici olarak** çalışıyorsa ve bu program çalışmıyorsa, Windows (UIPI) botun gönderdiği tüm tuş ve tıklamaları
-**sessizce yutar**: bot canavarı görür ama hiçbir şey olmaz. Program bunu otomatik tespit eder, kenar çubuğunda uyarı
-gösterir ve **Yönetici olarak yeniden başlat** düğmesi sunar.
+Program **her zaman yönetici olarak çalışır** ve açılışta bunu ister (Windows UAC onayı). Oyunlar genellikle yönetici
+olarak çalışır ve Windows (UIPI) yetkisiz bir programın gönderdiği tüm tuş ve tıklamaları **sessizce yutar**: bot
+canavarı görür ama hiçbir şey olmazdı. Onayı reddedersen program nedenini açıklar ve kapanır.
 
 ### Windows uyarıları
 
@@ -68,9 +77,9 @@ depoda açıktır; exe'yi isteyen kendisi `.\build.ps1` ile derleyebilir.
 2. Her blok [RapidOCR](https://github.com/RapidAI/RapidOCR) ile okunur (ONNX, ayrı kurulum gerekmez).
 3. Okunan metin hedefle bulanık eşleştirilir (`Mangyang` ≈ `Mangyan9`).
 4. En yakın eşleşmenin etiketinin biraz altına tıklanır ve saldırı tuşlarına basılır.
-5. Etiket birkaç taramada kaybolunca canavar ölmüş sayılır, loot tuşuna basılır ve döngü başa döner.
+5. Etiket birkaç taramada kaybolunca canavar ölmüş sayılır ve döngü başa döner.
 
-Durumlar: `Aranıyor → Doğrulanıyor → Saldırıyor → Loot`, ekranda hiçbir şey yoksa ayrıca `Gezinme`.
+Durumlar: `Aranıyor → Doğrulanıyor → Saldırıyor`, ekranda hiçbir şey yoksa ayrıca `Gezinme`.
 
 ## İsteğe bağlı: YOLO modeli eğitmek
 
@@ -96,7 +105,8 @@ pytest                                       # birim testleri (OCR tespiti, kay�
 SilkroadVisionBot.exe --selftest sonuc.txt   # derlenmiş exe içindeki OCR/onnxruntime'ı doğrular
 ```
 
-Ayarlar `config.json` içinde saklanır (git'e girmez). `main` dalına her push'ta GitHub Actions testleri çalıştırır,
+Ayarlar `config.json` içinde saklanır (git'e girmez). Geliştirirken yönetici istemeden açmak için `SRBOT_NO_ADMIN=1`
+ortam değişkenini ayarla (yetkili bir oyuna girdi o zaman Windows tarafından engellenir). `main` dalına her push'ta GitHub Actions testleri çalıştırır,
 exe'yi derler, `--selftest` ile doğrular ve "latest" [sürümünü](../../releases/latest) günceller.
 Eğitim bağımlılıkları exe'ye bilerek dahil edilmez, bu yüzden exe yaklaşık 100 MB'tır.
 

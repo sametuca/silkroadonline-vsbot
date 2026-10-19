@@ -26,8 +26,11 @@ from .detect import REF_HEIGHT
 
 # Where the ground is, as fractions of the game window: above the chat and skill bar,
 # clear of the minimap on the right.
-GROUND = (0.12, 0.22, 0.80, 0.64)
-PLAYER = (0.50, 0.55)          # the character stands near here
+GROUND = (0.05, 0.18, 0.84, 0.66)
+# Interface that must never be clicked while walking (HUD, minimap, quick buttons, chat and skill bar).
+# Kept separate from the OCR exclusions in the config: those are about where labels never appear.
+ROAM_AVOID = ((0.00, 0.00, 0.40, 0.20), (0.80, 0.00, 1.00, 0.32), (0.70, 0.32, 1.00, 0.50), (0.00, 0.66, 1.00, 1.00))
+PLAYER = (0.50, 0.52)          # the character stands near here (measured on a live 800x600 client)
 PERSPECTIVE = 0.6              # vertical distances look shorter than horizontal ones
 RHO_START = 0.025              # radar px per ground px, refined from measurements
 MATCH_RADIUS = 14.0            # px a dot may shift between two radar readings of the same monster
@@ -83,12 +86,12 @@ class Roamer:
 
         for _ in range(12):
             angle = self.rng.uniform(0, 2 * math.pi)
-            length = 0.6 * step
+            length = 0.85 * step
             if math.hypot(self.pos[0] + length * math.cos(angle), self.pos[1] + length * math.sin(angle)) <= 0.9 * radius:
                 return angle, length, "wander"
-        return math.pi / 2, 0.6 * step, "wander"
+        return math.pi / 2, 0.85 * step, "wander"
 
-    def next_move(self, shape, dots, step, radius, excludes=()):
+    def next_move(self, shape, dots, step, radius, excludes=ROAM_AVOID):
         """Plan a move and turn it into a clickable point; None if no safe point exists."""
         h, w = shape[:2]
         scale = h / REF_HEIGHT

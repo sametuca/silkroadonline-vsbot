@@ -31,11 +31,11 @@ def test_hunt_cycle(monkeypatch, scene):
     monkeypatch.setattr(inputs, "press_key", lambda k: log.append(("key", k)) or True)
 
     cfg = Config(monsters=["Mangyang"], excludes=[], attack_keys=["1", "2"], attack_interval=0.05,
-                 scan_interval=0.02, loot_key="z", loot_delay=0.05, detector="ocr")
+                 scan_interval=0.02, detector="ocr")
     bot = engine.BotEngine(cfg, hwnd=1)
     bot.start()
     deadline = time.time() + 30
-    while ("key", "z") not in log and time.time() < deadline:  # kill is counted before looting
+    while bot.kills < 1 and time.time() < deadline:
         time.sleep(0.1)
     bot.stop()
     bot.join(5)
@@ -43,7 +43,7 @@ def test_hunt_cycle(monkeypatch, scene):
     assert bot.kills == 1
     assert log[0][0] == "click"
     assert ("key", "1") in log and ("key", "2") in log
-    assert log[-1] == ("key", "z")  # looted after the kill
+    assert [e for e in log if e[0] == "key"][-1][1] in ("1", "2")  # only attack keys, nothing else is pressed
 
 
 def _patch_screen(monkeypatch, scene, log, click_ok=True):

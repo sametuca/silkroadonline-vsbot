@@ -40,6 +40,7 @@ jobs:
         run: >
           python -m PyInstaller --noconfirm --onefile --windowed --name SilkroadVisionBot
           --collect-all rapidocr_onnxruntime --collect-all customtkinter
+          --icon assets/icon.ico --add-data "assets;assets"
           --exclude-module ultralytics --exclude-module torch --exclude-module torchvision
           --exclude-module onnx --exclude-module matplotlib --exclude-module polars
           main.py
@@ -57,6 +58,12 @@ jobs:
         with:
           name: SilkroadVisionBot-windows
           path: dist/SilkroadVisionBot.exe
+
+      - name: Move the "latest" tag to this commit
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git tag -f latest
+          git push -f origin latest
 
       - name: Publish "latest" release
         if: github.ref == 'refs/heads/main'

@@ -1,11 +1,13 @@
 <div align="center">
 
+<img src="assets/app_icon.png" alt="Silkroad Vision Bot" width="110">
+
 # Silkroad Vision Bot
 
 ### [🇬🇧 English](README.md) &nbsp;|&nbsp; [🇹🇷 Türkçe](README.tr.md)
 
 Screen-vision auto-hunt bot for Silkroad-style MMOs. It reads monster **name labels** off the screen,
-picks targets, attacks, loots, and walks around to find more.
+picks targets, attacks, and walks around to find more.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
@@ -21,18 +23,26 @@ sends the same keyboard and mouse input a player would.
 1. Download `SilkroadVisionBot.exe` from [**Releases**](../../releases/latest) and double-click it (no Python needed).
    Or from source: `pip install -r requirements.txt`, then `python main.py`.
 2. Run the game in **windowed mode** and keep its window uncovered.
-3. Follow the three start-up steps (prefilled from your last run):
+3. On first start pick your **language** (English or Türkçe; you can change it any time). Then follow the three
+   start-up steps (prefilled from your last run):
    1. **Game**: pick the game window.
    2. **Monster**: type the monster's name **exactly as shown above it in the game** (case does not matter; separate
       several monsters with commas). Not sure about the spelling? **Read the name from the screen** shows what the
       bot sees and lets you tick it.
-   3. **Keys**: your attack key(s) (e.g. `1,2,3`), an optional loot key, and the roaming switch.
+   3. **Keys**: your attack keys (default `1,2,3,4`, pressed in turn), the roaming switch and the farming-area size.
 4. Press **START** (or **F9**).
 
 Normal, champion and giant monsters share the same name, so one name covers all of them. Your own character name is
 read from the window title (`[YourName] ...`) and ignored automatically. **Change settings** on the dashboard reopens the steps.
 
 **Test scan** reports in the log how many target monsters the bot sees on screen, without attacking anything.
+
+### Monster markers
+
+While the bot works it **draws boxes over the monsters** it found directly on the game window (the one being attacked
+is red and tagged, the spot it is walking to is a blue circle). The overlay is see-through and click-through, never
+takes focus, only shows while the game is in front, and switches itself off while you collect training data.
+Turn it off with **Mark monsters on screen**.
 
 ### Roaming
 
@@ -51,11 +61,11 @@ Turn roaming off with the **"Search by roaming when no monster"** switch.
 > The radar is expected in the top-right corner of the game window at its default size. The walk position is
 > dead-reckoned from the clicks, so it is approximate rather than exact.
 
-### Administrator rights (important)
+### Administrator rights (required)
 
-If the game runs **as administrator** and this program does not, Windows (UIPI) **silently drops** every key and click
-the bot sends: it sees monsters but nothing happens. The program detects this, shows a warning in the sidebar and
-offers a **Restart as administrator** button.
+The program **always runs as administrator** and asks for it at start (Windows UAC prompt). Games usually run elevated,
+and Windows (UIPI) **silently drops** every key and click sent from a non-elevated program: the bot would see monsters
+but nothing would happen. If you decline the prompt, the program explains why and closes.
 
 ### Windows warnings
 
@@ -69,9 +79,9 @@ you can build the exe yourself with `.\build.ps1`.
 2. Each blob is read with [RapidOCR](https://github.com/RapidAI/RapidOCR) (ONNX, no separate install).
 3. The text is fuzzy-matched against your target (`Mangyang` ≈ `Mangyan9`).
 4. The nearest match is clicked just below its label and the attack keys are pressed.
-5. When the label disappears for a few scans the monster counts as dead, the loot key is pressed and the loop restarts.
+5. When the label disappears for a few scans the monster counts as dead and the loop restarts.
 
-States: `Searching → Confirming → Attacking → Looting`, plus `Roaming` when nothing is on screen.
+States: `Searching → Confirming → Attacking`, plus `Roaming` when nothing is on screen.
 
 ## Optional: train a YOLO model
 
@@ -97,7 +107,8 @@ pytest                                       # unit tests (OCR detection, record
 SilkroadVisionBot.exe --selftest result.txt  # verifies OCR/onnxruntime inside the built exe
 ```
 
-Settings live in `config.json` (git-ignored). On every push to `main`, GitHub Actions runs the tests, builds the exe,
+Settings live in `config.json` (git-ignored). Set the environment variable `SRBOT_NO_ADMIN=1` to start without elevation
+while developing (input to an elevated game is then blocked by Windows). On every push to `main`, GitHub Actions runs the tests, builds the exe,
 verifies it with `--selftest` and updates the "latest" [release](../../releases/latest).
 Training dependencies are deliberately left out of the exe, which is why it is about 100 MB.
 

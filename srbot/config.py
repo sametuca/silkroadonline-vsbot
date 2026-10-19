@@ -21,23 +21,22 @@ DEFAULT_EXCLUDES = [
 
 @dataclass
 class Config:
+    language: str = ""              # "tr" | "en"; empty = ask on first start
     window_title: str = ""
     monsters: list = field(default_factory=list)
     player_name: str = ""
-    attack_keys: list = field(default_factory=lambda: ["1"])
+    attack_keys: list = field(default_factory=lambda: ["1", "2", "3", "4"])
     attack_interval: float = 0.9
-    loot_key: str = ""
-    loot_presses: int = 3
-    loot_delay: float = 1.2
     scan_interval: float = 0.25
     click_offset: int = 18          # px below the name label, at 632px window height
     match_threshold: int = 78       # fuzzy name match, 0-100
     confirm_frames: int = 2
+    overlay: bool = True            # draw boxes over the monsters on the game window
     roam: bool = True               # walk around when no target monster is on screen
     roam_after: float = 2.5         # seconds without a target before walking
-    roam_step: int = 200            # walk distance in px at 632px window height
-    roam_radius: float = 6.0        # farming-area radius around the start spot, in steps
-    roam_wait: float = 1.8          # seconds to let the character walk before looking again
+    roam_step: int = 360            # walk distance in px at 632px window height
+    roam_radius: float = 4.0        # farming-area radius around the start spot, in steps
+    roam_wait: float = 1.3          # seconds to let the character walk before the next step
     detector: str = "auto"          # auto (model if trained, else OCR) | ocr | model
     model_conf: float = 0.4
     attack_timeout: float = 30.0

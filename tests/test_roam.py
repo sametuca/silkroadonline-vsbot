@@ -6,8 +6,8 @@ import pytest
 
 from conftest import add_radar, make_scene
 from srbot import engine, inputs, radar, winutil
-from srbot.config import DEFAULT_EXCLUDES, Config
-from srbot.roam import GROUND, Roamer
+from srbot.config import Config
+from srbot.roam import GROUND, ROAM_AVOID, Roamer
 
 SHAPE = (632, 802, 3)
 STEP, RADIUS = 200, 1200
@@ -51,7 +51,7 @@ def test_wandering_never_leaves_the_farming_area():
     r, rng = Roamer(random.Random(4)), random.Random(9)
     for _ in range(500):
         dots = [] if rng.random() < 0.7 else [(rng.uniform(-48, 48), rng.uniform(-30, 30))]
-        r.next_move(SHAPE, dots, STEP, RADIUS, DEFAULT_EXCLUDES)
+        r.next_move(SHAPE, dots, STEP, RADIUS, ROAM_AVOID)
         assert r.home_distance <= RADIUS * 1.05
 
 
@@ -60,17 +60,17 @@ def test_click_points_stay_on_the_ground_and_off_the_ui():
     h, w = SHAPE[:2]
     for _ in range(300):
         dots = [(rng.uniform(-48, 48), rng.uniform(-48, 48)) for _ in range(rng.randint(0, 4))]
-        move = r.next_move(SHAPE, dots, STEP, RADIUS, DEFAULT_EXCLUDES)
+        move = r.next_move(SHAPE, dots, STEP, RADIUS, ROAM_AVOID)
         assert move is not None
         x, y = move.point
         assert GROUND[0] * w <= x <= GROUND[2] * w and GROUND[1] * h <= y <= GROUND[3] * h
-        assert not any(l * w <= x <= rr * w and t * h <= y <= b * h for l, t, rr, b in DEFAULT_EXCLUDES)
+        assert not any(l * w <= x <= rr * w and t * h <= y <= b * h for l, t, rr, b in ROAM_AVOID)
 
 
 def test_step_scales_with_window_size():
     big = Roamer(random.Random(1)).next_move((1264, 1604, 3), [(0, 40)], STEP, RADIUS)
     small = Roamer(random.Random(1)).next_move(SHAPE, [(0, 40)], STEP, RADIUS)
-    assert abs(big.point[1] - 1264 * 0.55) > abs(small.point[1] - 632 * 0.55)
+    assert abs(big.point[1] - 1264 * 0.52) > abs(small.point[1] - 632 * 0.52)
 
 
 # -- learning the radar's orientation -----------------------------------------
@@ -149,7 +149,7 @@ def test_bot_walks_toward_the_nearest_radar_dot(monkeypatch):
     clicks = [e for e in log if e[0] == "click"]
     assert len(clicks) >= 2 and all(e[0] == "click" for e in log)  # walking only: no attack keys
     # nearest dot is below-right of the arrow, so the click lands below the player (y grows downward)
-    assert clicks[0][2] > 632 * 0.55
+    assert clicks[0][2] > 632 * 0.52
     assert any("Radarda" in m for m in messages)
 
 

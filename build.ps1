@@ -12,6 +12,7 @@ python -m pip install pyinstaller
 # keep them out of the exe even when they are installed on this machine.
 python -m PyInstaller --noconfirm --onefile --windowed --name SilkroadVisionBot `
     --collect-all rapidocr_onnxruntime --collect-all customtkinter `
+    --icon assets\icon.ico --add-data "assets;assets" `
     --exclude-module ultralytics --exclude-module torch --exclude-module torchvision `
     --exclude-module onnx --exclude-module matplotlib --exclude-module polars `
     main.py
